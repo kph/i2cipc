@@ -127,19 +127,23 @@ static int i2c_slave_stream_slave_cb(struct i2c_client *client,
 	return 0;
 }
 
-static int i2c_slave_stream_open(struct inode *inodep, struct file *filep) {
+static int i2c_slave_stream_open(struct inode *inodep, struct file *filep)
+{
 	return 0;
 }
 
-static ssize_t i2c_slave_stream_read(struct file *filep, char *buffer, size_t len, loff_t *offset) {
+static ssize_t i2c_slave_stream_read(struct file *filep, char *buffer, size_t len, loff_t *offset)
+{
 	return 0;
 }
 
-static ssize_t i2c_slave_stream_write(struct file *filep, const char *buffer, size_t len, loff_t *offset) {
+static ssize_t i2c_slave_stream_write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
+{
 	return len;
 }
 
-static int i2c_slave_stream_release(struct inode *inodep, struct file *filep){
+static int i2c_slave_stream_release(struct inode *inodep, struct file *filep)
+{
 	return 0;
 }
 
@@ -216,7 +220,8 @@ static struct file_operations fops =
 	.release = i2c_slave_stream_release,
 };
 
-static int __init i2c_slave_stream_init(void) {
+static int __init i2c_slave_stream_init(void)
+{
 	i2c_slave_stream_major = register_chrdev(0, DEVICE_NAME, &fops);
 	if (i2c_slave_stream_major < 0) {
 		return i2c_slave_stream_major;
@@ -231,7 +236,8 @@ static int __init i2c_slave_stream_init(void) {
 	return 0;
 }
 
-static void __exit i2c_slave_stream_exit(void) {
+static void __exit i2c_slave_stream_exit(void)
+{
 	class_unregister(i2c_slave_stream_class);
 	class_destroy(i2c_slave_stream_class);
 	unregister_chrdev(i2c_slave_stream_major, DEVICE_NAME);
