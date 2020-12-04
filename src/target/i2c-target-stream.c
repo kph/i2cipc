@@ -6,20 +6,26 @@
  *
  */
 
-#include <linux/bitfield.h>
-#include <linux/i2c.h>
 #include <linux/init.h>
 #include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/fs.h>
 #include <linux/of.h>
+#include <linux/bitfield.h>
+#include <linux/i2c.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/sysfs.h>
 #include <linux/circ_buf.h>
 #include <linux/semaphore.h>
 
+#define  DEVICE_NAME "i2c-slave-stream-0" /* fixme per unit */
+#define  CLASS_NAME  "i2c-slave-stream"
+
 #define I2C_SLAVE_STREAM_BUFSIZE 0x100 /* Must be a power of 2 */
 
 struct stream_data {
+	struct device *device;
 	u8 offset;
 	u8 reg;
 	wait_queue_head_t wait_from_host, wait_to_host;
@@ -32,6 +38,9 @@ struct stream_data {
 	char readbuf[I2C_SLAVE_STREAM_BUFSIZE];
 	char writebuf[I2C_SLAVE_STREAM_BUFSIZE];
 };
+
+static int i2c_slave_stream_major;
+static struct class *i2c_slave_stream_class;
 
 static int i2c_slave_stream_slave_cb(struct i2c_client *client,
 				     enum i2c_slave_event event, u8 *val)
@@ -118,6 +127,22 @@ static int i2c_slave_stream_slave_cb(struct i2c_client *client,
 	return 0;
 }
 
+static int i2c_slave_stream_open(struct inode *inodep, struct file *filep) {
+	return 0;
+}
+
+static ssize_t i2c_slave_stream_read(struct file *filep, char *buffer, size_t len, loff_t *offset) {
+	return 0;
+}
+
+static ssize_t i2c_slave_stream_write(struct file *filep, const char *buffer, size_t len, loff_t *offset) {
+	return len;
+}
+
+static int i2c_slave_stream_release(struct inode *inodep, struct file *filep){
+	return 0;
+}
+
 static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	struct stream_data *stream;
@@ -126,6 +151,14 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 	stream = devm_kzalloc(&client->dev, sizeof(struct stream_data), GFP_KERNEL);
 	if (!stream)
 		return -ENOMEM;
+
+	stream->device = device_create(i2c_slave_stream_class, NULL,
+				       MKDEV(i2c_slave_stream_major, 0),
+				       NULL, DEVICE_NAME);
+	if (IS_ERR(stream->device)) {
+		ret = PTR_ERR(stream->device);
+		goto err_mem;
+	}
 
 	spin_lock_init(&stream->write_lock);
 	spin_lock_init(&stream->read_lock);
@@ -137,6 +170,8 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 
 	ret = i2c_slave_register(client, i2c_slave_stream_slave_cb);
 	if (ret) {
+	err_mem:
+		kfree(stream);
 		return ret;
 	}
 
@@ -145,9 +180,14 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 
 static int i2c_slave_stream_remove(struct i2c_client *client)
 {
-	//struct stream_data *stream = i2c_get_clientdata(client);
+	struct stream_data *stream = i2c_get_clientdata(client);
 
 	i2c_slave_unregister(client);
+
+	if (stream->device) {
+		device_destroy(i2c_slave_stream_class,
+			       MKDEV(i2c_slave_stream_major, 0));
+	}
 
 	return 0;
 }
@@ -167,6 +207,38 @@ static struct i2c_driver i2c_slave_stream_driver = {
 	.id_table = i2c_slave_stream_id,
 };
 module_i2c_driver(i2c_slave_stream_driver);
+
+static struct file_operations fops =
+{
+	.open = i2c_slave_stream_open,
+	.read = i2c_slave_stream_read,
+	.write = i2c_slave_stream_write,
+	.release = i2c_slave_stream_release,
+};
+
+static int __init i2c_slave_stream_init(void) {
+	i2c_slave_stream_major = register_chrdev(0, DEVICE_NAME, &fops);
+	if (i2c_slave_stream_major < 0) {
+		return i2c_slave_stream_major;
+	}
+
+	i2c_slave_stream_class = class_create(THIS_MODULE, CLASS_NAME);
+	if (IS_ERR(i2c_slave_stream_class)) {
+		unregister_chrdev(i2c_slave_stream_major, DEVICE_NAME);
+		return PTR_ERR(i2c_slave_stream_class);
+	}
+
+	return 0;
+}
+
+static void __exit i2c_slave_stream_exit(void) {
+	class_unregister(i2c_slave_stream_class);
+	class_destroy(i2c_slave_stream_class);
+	unregister_chrdev(i2c_slave_stream_major, DEVICE_NAME);
+}
+
+module_init(i2c_slave_stream_init);
+module_exit(i2c_slave_stream_exit);
 
 MODULE_AUTHOR("Kevin Paul Herbert <kph@platinaystems.com>");
 MODULE_DESCRIPTION("I2C slave mode stream transport");
