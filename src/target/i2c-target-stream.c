@@ -55,6 +55,8 @@ static int i2c_slave_stream_slave_cb(struct i2c_client *client,
 	unsigned long head, tail;
 	u8 ch;
 	
+	printk("%s: stream = %p\n", __func__, stream);
+
 	switch (event) {
 	case I2C_SLAVE_WRITE_REQUESTED:
 		spin_lock(&stream->from_host.lock);
@@ -66,12 +68,15 @@ static int i2c_slave_stream_slave_cb(struct i2c_client *client,
 		spin_lock(&stream->from_host.lock);
 		if (stream->offset == 0) {	/* Register is a single byte */
 			stream->reg = *val;
+			printk("i2c-slave-stream: register %02x selected\n",
+			       stream->reg);
 		} else {
 			head = stream->from_host.buffer.head;
 			tail = READ_ONCE(stream->from_host.buffer.tail);
 			if (CIRC_SPACE(head, tail, I2C_SLAVE_STREAM_BUFSIZE) >= 1) {
 				stream->from_host.buffer.buf[head] = *val;
-
+				printk("i2c-slave-stream: wrote %02x at head %lx tail %x\n",
+				       *val, head, tail);
 				smp_store_release(&stream->from_host.buffer.head,
 						  (head + 1) & (I2C_SLAVE_STREAM_BUFSIZE - 1));
 			} else {
@@ -149,6 +154,8 @@ static ssize_t i2c_slave_stream_read(struct file *filep, char *buffer, size_t le
 	int cnt;
 	size_t done = 0;
 	
+	printk("%s: stream = %p\n", __func__, stream);
+	
 	while (done < len) {
 		if (down_interruptible(&stream->from_host.sem))
 			return -ERESTARTSYS;
@@ -161,6 +168,7 @@ static ssize_t i2c_slave_stream_read(struct file *filep, char *buffer, size_t le
 		cnt = CIRC_CNT_TO_END(head, tail, I2C_SLAVE_STREAM_BUFSIZE);
 		spin_unlock(&stream->from_host.lock);
 		
+		printk("%s: cnt = %d\n", __func__, cnt);
 		if (cnt == 0) {
 			up(&stream->from_host.sem);
 			if (done != 0) {
@@ -174,16 +182,20 @@ static ssize_t i2c_slave_stream_read(struct file *filep, char *buffer, size_t le
 				return -ERESTARTSYS;
 		} else {
 			size_t todo = min(len - done, (size_t)cnt);
-			if (copy_to_user(&buffer[done], &stream->from_host.buffer.buf[head],
+			printk("%s: todo = %d len = %d done = %d cnt = %d tail=%d\n",
+			       __func__, todo, len, done, cnt, tail);
+			if (copy_to_user(&buffer[done], &stream->from_host.buffer.buf[tail],
 					 todo)) {
 				up(&stream->from_host.sem);
 				return -EFAULT;
 			}
 			done += todo;
+			smp_store_release(&stream->from_host.buffer.tail,
+					  (tail + todo) & (I2C_SLAVE_STREAM_BUFSIZE - 1));
 			up(&stream->from_host.sem);
 		}
 	}
-	return 0;
+	return done;
 }
 
 static ssize_t i2c_slave_stream_write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
