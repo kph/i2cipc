@@ -55,7 +55,7 @@ static int i2c_slave_stream_slave_cb(struct i2c_client *client,
 	unsigned long head, tail;
 	u8 ch;
 	
-	printk("%s: stream = %p\n", __func__, stream);
+	printk("%s: stream = %p event=%x\n", __func__, stream, event);
 
 	switch (event) {
 	case I2C_SLAVE_WRITE_REQUESTED:
@@ -75,7 +75,7 @@ static int i2c_slave_stream_slave_cb(struct i2c_client *client,
 			tail = READ_ONCE(stream->from_host.buffer.tail);
 			if (CIRC_SPACE(head, tail, I2C_SLAVE_STREAM_BUFSIZE) >= 1) {
 				stream->from_host.buffer.buf[head] = *val;
-				printk("i2c-slave-stream: wrote %02x at head %lx tail %x\n",
+				printk("i2c-slave-stream: wrote %02x at head %lx tail %lx\n",
 				       *val, head, tail);
 				smp_store_release(&stream->from_host.buffer.head,
 						  (head + 1) & (I2C_SLAVE_STREAM_BUFSIZE - 1));
@@ -130,6 +130,15 @@ static int i2c_slave_stream_slave_cb(struct i2c_client *client,
 			wake_up(&stream->from_host.wait);
 		}
 		spin_unlock(&stream->from_host.lock);
+
+		spin_lock(&stream->to_host.lock);
+		if (CIRC_CNT(stream->to_host.buffer.head,
+			     stream->to_host.buffer.tail,
+			     I2C_SLAVE_STREAM_BUFSIZE) == 0) {
+			wake_up(&stream->to_host.wait);
+		}
+		spin_unlock(&stream->to_host.lock);
+
 		break;
 	default:
 		break;
@@ -150,7 +159,8 @@ static int i2c_slave_stream_open(struct inode *inode, struct file *filep)
 static ssize_t i2c_slave_stream_read(struct file *filep, char *buffer, size_t len, loff_t *offset)
 {
 	struct stream_data *stream = filep->private_data;
-	unsigned long head, tail;
+	unsigned long head;
+	unsigned long tail;
 	int cnt;
 	size_t done = 0;
 	
@@ -182,7 +192,7 @@ static ssize_t i2c_slave_stream_read(struct file *filep, char *buffer, size_t le
 				return -ERESTARTSYS;
 		} else {
 			size_t todo = min(len - done, (size_t)cnt);
-			printk("%s: todo = %d len = %d done = %d cnt = %d tail=%d\n",
+			printk("%s: todo = %ux len = %ux done = %ux cnt = %ux tail=%lx\n",
 			       __func__, todo, len, done, cnt, tail);
 			if (copy_to_user(&buffer[done], &stream->from_host.buffer.buf[tail],
 					 todo)) {
@@ -200,6 +210,56 @@ static ssize_t i2c_slave_stream_read(struct file *filep, char *buffer, size_t le
 
 static ssize_t i2c_slave_stream_write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
 {
+	struct stream_data *stream = filep->private_data;
+	unsigned long head, tail;
+	int cnt;
+	size_t done = 0;
+	
+	printk("%s: stream = %p\n", __func__, stream);
+	
+	while (done < len) {
+		if (down_interruptible(&stream->to_host.sem))
+			return -ERESTARTSYS;
+
+		spin_lock(&stream->to_host.lock);
+
+		head = stream->to_host.buffer.head;
+		tail = READ_ONCE(stream->to_host.buffer.tail);
+
+		cnt = CIRC_SPACE_TO_END(head, tail, I2C_SLAVE_STREAM_BUFSIZE);
+		spin_unlock(&stream->to_host.lock);
+
+		printk("%s: cnt = %d\n", __func__, cnt);
+		if (cnt == 0) {
+			up(&stream->to_host.sem);
+			if (filep->f_flags & O_NONBLOCK) {
+				if (done != 0) {
+					return done;
+				}
+				return -EAGAIN;
+			}
+			if (wait_event_interruptible(stream->to_host.wait,
+						     (smp_load_acquire(&stream->to_host.buffer.head) != 
+						      stream->to_host.buffer.tail)))
+				return -ERESTARTSYS;
+		} else {
+			size_t todo = min(len - done, (size_t)cnt);
+			printk("%s: todo = %zx len = %zx done = %zx cnt = %zx tail=%lx\n",
+			       __func__, todo, len, done, cnt, tail);
+			if (copy_from_user(&stream->to_host.buffer.buf[head],
+					   &buffer[done],
+					   todo)) {
+				up(&stream->to_host.sem);
+				return -EFAULT;
+			}
+			done += todo;
+			smp_store_release(&stream->to_host.buffer.head,
+					  (head + todo) & (I2C_SLAVE_STREAM_BUFSIZE - 1));
+			up(&stream->from_host.sem);
+		}
+			
+	}
+
 	return len;
 }
 
