@@ -27,6 +27,9 @@
 
 #define I2C_SLAVE_STREAM_BUFSIZE 0x100 /* Must be a power of 2 */
 
+#define STREAM_DATA_REG (0x40)
+#define STREAM_CNT_REG (0x41)
+
 struct stream_buffer {
 	wait_queue_head_t wait;
 	struct semaphore sem;
@@ -52,7 +55,7 @@ static int i2c_slave_stream_slave_cb(struct i2c_client *client,
 				     enum i2c_slave_event event, u8 *val)
 {
 	struct stream_data *stream = i2c_get_clientdata(client);
-	unsigned long head, tail;
+	unsigned long head, tail, cnt;
 	u8 ch;
 	
 	printk("%s: stream = %p event=%x\n", __func__, stream, event);
@@ -70,7 +73,16 @@ static int i2c_slave_stream_slave_cb(struct i2c_client *client,
 			stream->reg = *val;
 			printk("i2c-slave-stream: register %02x selected\n",
 			       stream->reg);
+			if (stream->reg != STREAM_DATA_REG &&
+			    stream->reg != STREAM_CNT_REG) {
+				spin_unlock(&stream->from_host.lock);
+				return ENOENT;
+			}
 		} else {
+			if (stream->reg != STREAM_DATA_REG) {
+				spin_unlock(&stream->from_host.lock);
+				return ENOENT;
+			}
 			head = stream->from_host.buffer.head;
 			tail = READ_ONCE(stream->from_host.buffer.tail);
 			if (CIRC_SPACE(head, tail, I2C_SLAVE_STREAM_BUFSIZE) >= 1) {
@@ -88,6 +100,13 @@ static int i2c_slave_stream_slave_cb(struct i2c_client *client,
 		break;
 
 	case I2C_SLAVE_READ_PROCESSED:
+		printk("I2C_SLAVE_READ_PROCESSED: reg=%x offset=%x\n",
+		       stream->reg, stream->offset);
+		stream->offset++;
+		if (stream->reg != STREAM_DATA_REG) {
+			*val = 0;
+			break;
+		}
 		/* The previous byte made it to the bus, get next one */
 		spin_lock(&stream->to_host.lock);
 		head = smp_load_acquire(&stream->to_host.buffer.head);
@@ -102,17 +121,27 @@ static int i2c_slave_stream_slave_cb(struct i2c_client *client,
 		break;
 
 	case I2C_SLAVE_READ_REQUESTED:
-
+		printk("I2C_SLAVE_READ_REQUESTED: reg=%x offset=%x\n",
+		       stream->reg, stream->offset);
 		spin_lock(&stream->to_host.lock);
 		head = smp_load_acquire(&stream->to_host.buffer.head);
 		tail = stream->to_host.buffer.tail;
-		ch = 0;
-		
-		if (CIRC_CNT(stream->to_host.buffer.head, tail,
-			     I2C_SLAVE_STREAM_BUFSIZE) >= 1) {
-			ch = stream->to_host.buffer.buf[tail];
-		}			
-		*val = ch;
+		cnt = CIRC_CNT(head, tail, I2C_SLAVE_STREAM_BUFSIZE);
+		if (stream->reg == STREAM_CNT_REG) {
+			if (cnt > 255) {
+				cnt = 255;
+			}
+			if (stream->offset > 0) {
+				cnt = 0;
+			}
+			*val = cnt;
+		} else {
+			ch = 0;
+			if (cnt >= 1) {
+				ch = stream->to_host.buffer.buf[tail];
+			}			
+			*val = ch;
+		}
 		spin_unlock(&stream->to_host.lock);
 
 		/*
@@ -123,6 +152,7 @@ static int i2c_slave_stream_slave_cb(struct i2c_client *client,
 		break;
 
 	case I2C_SLAVE_STOP:
+		stream->offset = 0;
 		spin_lock(&stream->from_host.lock);
 		if (CIRC_CNT(stream->from_host.buffer.head,
 			     stream->from_host.buffer.tail,
