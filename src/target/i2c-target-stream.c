@@ -215,14 +215,20 @@ static ssize_t i2c_slave_stream_write(struct file *filep, const char *buffer, si
 	int cnt;
 	size_t done = 0;
 	
-	printk("%s: stream = %p\n", __func__, stream);
+	printk("%s: stream = %p len=%zx offset=%llx head=%x tail=%x\n",
+	       __func__, stream, len, *offset,
+	       smp_load_acquire(&stream->to_host.buffer.head),
+	       stream->to_host.buffer.tail);
 	
 	while (done < len) {
 		if (down_interruptible(&stream->to_host.sem))
 			return -ERESTARTSYS;
 
-		spin_lock(&stream->to_host.lock);
+		printk("Got semaphore\n");
 
+		spin_lock(&stream->to_host.lock);
+		printk("Got spinlock\n");
+		
 		head = stream->to_host.buffer.head;
 		tail = READ_ONCE(stream->to_host.buffer.tail);
 
@@ -255,7 +261,7 @@ static ssize_t i2c_slave_stream_write(struct file *filep, const char *buffer, si
 			done += todo;
 			smp_store_release(&stream->to_host.buffer.head,
 					  (head + todo) & (I2C_SLAVE_STREAM_BUFSIZE - 1));
-			up(&stream->from_host.sem);
+			up(&stream->to_host.sem);
 		}
 			
 	}
