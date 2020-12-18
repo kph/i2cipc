@@ -44,7 +44,6 @@ struct stream_data {
 	u8 offset;
 	u8 reg;
 	u32 overrun;
-	struct device *device;
 	struct stream_buffer from_host, to_host;
 };
 
@@ -58,7 +57,7 @@ static int i2c_slave_stream_slave_cb(struct i2c_client *client,
 	unsigned long head, tail, cnt;
 	u8 ch;
 	
-	printk("%s: stream = %p event=%x\n", __func__, stream, event);
+//	printk("%s: stream = %p event=%x\n", __func__, stream, event);
 
 	switch (event) {
 	case I2C_SLAVE_WRITE_REQUESTED:
@@ -71,8 +70,8 @@ static int i2c_slave_stream_slave_cb(struct i2c_client *client,
 		spin_lock(&stream->from_host.lock);
 		if (stream->offset == 0) {	/* Register is a single byte */
 			stream->reg = *val;
-			printk("i2c-slave-stream: register %02x selected\n",
-			       stream->reg);
+			//printk("i2c-slave-stream: register %02x selected\n",
+			//       stream->reg);
 			if (stream->reg != STREAM_DATA_REG &&
 			    stream->reg != STREAM_CNT_REG) {
 				spin_unlock(&stream->from_host.lock);
@@ -87,8 +86,8 @@ static int i2c_slave_stream_slave_cb(struct i2c_client *client,
 			tail = READ_ONCE(stream->from_host.buffer.tail);
 			if (CIRC_SPACE(head, tail, I2C_SLAVE_STREAM_BUFSIZE) >= 1) {
 				stream->from_host.buffer.buf[head] = *val;
-				printk("i2c-slave-stream: wrote %02x at head %lx tail %lx\n",
-				       *val, head, tail);
+				//printk("i2c-slave-stream: wrote %02x at head %lx tail %lx\n",
+				//     *val, head, tail);
 				smp_store_release(&stream->from_host.buffer.head,
 						  (head + 1) & (I2C_SLAVE_STREAM_BUFSIZE - 1));
 			} else {
@@ -100,8 +99,8 @@ static int i2c_slave_stream_slave_cb(struct i2c_client *client,
 		break;
 
 	case I2C_SLAVE_READ_PROCESSED:
-		printk("I2C_SLAVE_READ_PROCESSED: reg=%x offset=%x\n",
-		       stream->reg, stream->offset);
+		//printk("I2C_SLAVE_READ_PROCESSED: reg=%x offset=%x\n",
+		//       stream->reg, stream->offset);
 		stream->offset++;
 		if (stream->reg != STREAM_DATA_REG) {
 			*val = 0;
@@ -121,8 +120,8 @@ static int i2c_slave_stream_slave_cb(struct i2c_client *client,
 		break;
 
 	case I2C_SLAVE_READ_REQUESTED:
-		printk("I2C_SLAVE_READ_REQUESTED: reg=%x offset=%x\n",
-		       stream->reg, stream->offset);
+		//printk("I2C_SLAVE_READ_REQUESTED: reg=%x offset=%x\n",
+		//       stream->reg, stream->offset);
 		spin_lock(&stream->to_host.lock);
 		head = smp_load_acquire(&stream->to_host.buffer.head);
 		tail = stream->to_host.buffer.tail;
@@ -168,8 +167,8 @@ static int i2c_slave_stream_slave_cb(struct i2c_client *client,
 			wake_up(&stream->to_host.wait);
 		}
 		spin_unlock(&stream->to_host.lock);
-
 		break;
+
 	default:
 		break;
 	}
@@ -306,11 +305,20 @@ static int i2c_slave_stream_release(struct inode *inodep, struct file *filep)
 
 static struct file_operations fops =
 {
+	.owner = THIS_MODULE,
 	.open = i2c_slave_stream_open,
 	.read = i2c_slave_stream_read,
 	.write = i2c_slave_stream_write,
 	.release = i2c_slave_stream_release,
 };
+
+static void i2c_slave_stream_data_release(struct device *dev) {
+	struct stream_data *stream;
+
+	stream = container_of(dev, struct stream_data, dev);
+
+	kfree(stream);
+}
 
 static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
@@ -324,6 +332,7 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 	device_initialize(&stream->dev);
 	stream->dev.devt = MKDEV(i2c_slave_stream_major, 0);
 	stream->dev.class = i2c_slave_stream_class;
+	stream->dev.release = i2c_slave_stream_data_release;
 	dev_set_name(&stream->dev, DEVICE_NAME);
 
 	cdev_init(&stream->cdev, &fops);
@@ -331,7 +340,8 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 	if (ret) {
 		goto err_mem;
 	}
-
+	stream->cdev.owner = fops.owner;
+	
 	init_waitqueue_head(&stream->from_host.wait);
 	init_waitqueue_head(&stream->to_host.wait);
 	
@@ -349,7 +359,7 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 	ret = i2c_slave_register(client, i2c_slave_stream_slave_cb);
 	if (ret) {
 	err_mem:
-		kfree(stream);
+		put_device(&stream->dev);
 		return ret;
 	}
 
@@ -360,13 +370,10 @@ static int i2c_slave_stream_remove(struct i2c_client *client)
 {
 	struct stream_data *stream = i2c_get_clientdata(client);
 
+	cdev_device_del(&stream->cdev, &stream->dev);
+	put_device(&stream->dev);
 	i2c_slave_unregister(client);
-
-	if (stream->device) {
-		device_destroy(i2c_slave_stream_class,
-			       MKDEV(i2c_slave_stream_major, 0));
-	}
-
+	
 	return 0;
 }
 
