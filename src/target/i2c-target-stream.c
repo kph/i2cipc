@@ -306,6 +306,7 @@ static int i2c_slave_stream_release(struct inode *inodep, struct file *filep)
 static struct file_operations fops =
 {
 	.owner = THIS_MODULE,
+	.llseek = no_llseek,
 	.open = i2c_slave_stream_open,
 	.read = i2c_slave_stream_read,
 	.write = i2c_slave_stream_write,
