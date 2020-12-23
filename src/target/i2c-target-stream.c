@@ -57,8 +57,6 @@ static int i2c_slave_stream_slave_cb(struct i2c_client *client,
 	unsigned long head, tail, cnt;
 	u8 ch;
 	
-//	printk("%s: stream = %p event=%x\n", __func__, stream, event);
-
 	switch (event) {
 	case I2C_SLAVE_WRITE_REQUESTED:
 		spin_lock(&stream->from_host.lock);
@@ -70,8 +68,6 @@ static int i2c_slave_stream_slave_cb(struct i2c_client *client,
 		spin_lock(&stream->from_host.lock);
 		if (stream->offset == 0) {	/* Register is a single byte */
 			stream->reg = *val;
-			//printk("i2c-slave-stream: register %02x selected\n",
-			//       stream->reg);
 			if (stream->reg != STREAM_DATA_REG &&
 			    stream->reg != STREAM_CNT_REG) {
 				spin_unlock(&stream->from_host.lock);
@@ -86,8 +82,6 @@ static int i2c_slave_stream_slave_cb(struct i2c_client *client,
 			tail = READ_ONCE(stream->from_host.buffer.tail);
 			if (CIRC_SPACE(head, tail, I2C_SLAVE_STREAM_BUFSIZE) >= 1) {
 				stream->from_host.buffer.buf[head] = *val;
-				//printk("i2c-slave-stream: wrote %02x at head %lx tail %lx\n",
-				//     *val, head, tail);
 				smp_store_release(&stream->from_host.buffer.head,
 						  (head + 1) & (I2C_SLAVE_STREAM_BUFSIZE - 1));
 			} else {
@@ -99,8 +93,6 @@ static int i2c_slave_stream_slave_cb(struct i2c_client *client,
 		break;
 
 	case I2C_SLAVE_READ_PROCESSED:
-		//printk("I2C_SLAVE_READ_PROCESSED: reg=%x offset=%x\n",
-		//       stream->reg, stream->offset);
 		stream->offset++;
 		if (stream->reg != STREAM_DATA_REG) {
 			*val = 0;
@@ -120,8 +112,6 @@ static int i2c_slave_stream_slave_cb(struct i2c_client *client,
 		break;
 
 	case I2C_SLAVE_READ_REQUESTED:
-		//printk("I2C_SLAVE_READ_REQUESTED: reg=%x offset=%x\n",
-		//       stream->reg, stream->offset);
 		spin_lock(&stream->to_host.lock);
 		head = smp_load_acquire(&stream->to_host.buffer.head);
 		tail = stream->to_host.buffer.tail;
@@ -193,8 +183,6 @@ static ssize_t i2c_slave_stream_read(struct file *filep, char *buffer, size_t le
 	int cnt;
 	size_t done = 0;
 	
-	printk("%s: stream = %p\n", __func__, stream);
-	
 	while (done < len) {
 		if (down_interruptible(&stream->from_host.sem))
 			return -ERESTARTSYS;
@@ -207,7 +195,6 @@ static ssize_t i2c_slave_stream_read(struct file *filep, char *buffer, size_t le
 		cnt = CIRC_CNT_TO_END(head, tail, I2C_SLAVE_STREAM_BUFSIZE);
 		spin_unlock(&stream->from_host.lock);
 		
-		printk("%s: cnt = %d\n", __func__, cnt);
 		if (cnt == 0) {
 			up(&stream->from_host.sem);
 			if (done != 0) {
@@ -221,8 +208,7 @@ static ssize_t i2c_slave_stream_read(struct file *filep, char *buffer, size_t le
 				return -ERESTARTSYS;
 		} else {
 			size_t todo = min(len - done, (size_t)cnt);
-			printk("%s: todo = %ux len = %ux done = %ux cnt = %ux tail=%lx\n",
-			       __func__, todo, len, done, cnt, tail);
+
 			if (copy_to_user(&buffer[done], &stream->from_host.buffer.buf[tail],
 					 todo)) {
 				up(&stream->from_host.sem);
@@ -244,19 +230,11 @@ static ssize_t i2c_slave_stream_write(struct file *filep, const char *buffer, si
 	int cnt;
 	size_t done = 0;
 	
-	printk("%s: stream = %p len=%zx offset=%llx head=%x tail=%x\n",
-	       __func__, stream, len, *offset,
-	       smp_load_acquire(&stream->to_host.buffer.head),
-	       stream->to_host.buffer.tail);
-	
 	while (done < len) {
 		if (down_interruptible(&stream->to_host.sem))
 			return -ERESTARTSYS;
 
-		printk("Got semaphore\n");
-
 		spin_lock(&stream->to_host.lock);
-		printk("Got spinlock\n");
 		
 		head = stream->to_host.buffer.head;
 		tail = READ_ONCE(stream->to_host.buffer.tail);
@@ -264,7 +242,6 @@ static ssize_t i2c_slave_stream_write(struct file *filep, const char *buffer, si
 		cnt = CIRC_SPACE_TO_END(head, tail, I2C_SLAVE_STREAM_BUFSIZE);
 		spin_unlock(&stream->to_host.lock);
 
-		printk("%s: cnt = %d\n", __func__, cnt);
 		if (cnt == 0) {
 			up(&stream->to_host.sem);
 			if (filep->f_flags & O_NONBLOCK) {
@@ -279,8 +256,7 @@ static ssize_t i2c_slave_stream_write(struct file *filep, const char *buffer, si
 				return -ERESTARTSYS;
 		} else {
 			size_t todo = min(len - done, (size_t)cnt);
-			printk("%s: todo = %zx len = %zx done = %zx cnt = %zx tail=%lx\n",
-			       __func__, todo, len, done, cnt, tail);
+
 			if (copy_from_user(&stream->to_host.buffer.buf[head],
 					   &buffer[done],
 					   todo)) {
