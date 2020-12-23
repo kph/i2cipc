@@ -54,8 +54,6 @@ static ssize_t i2c_master_stream_read(struct file *filep, char *buffer, size_t l
 	int cnt;
 	size_t done = 0;
 	
-	printk("%s: stream = %p\n", __func__, stream);
-	
 	while (done < len) {
 		cnt = i2c_smbus_read_byte_data(client, STREAM_CNT_REG);
 		
@@ -93,48 +91,27 @@ static ssize_t i2c_master_stream_write(struct file *filep, const char *buffer, s
 {
 	struct stream_data *stream = filep->private_data;
 	struct i2c_client *client = stream->client;
-	int cnt;
 	size_t done = 0;
 	int ret;
 	
-	printk("%s: stream = %p len=%zx offset=%llx\n",
-	       __func__, stream, len, *offset);
-	
 	while (done < len) {
+		size_t todo = min(len - done, (size_t)32);
+		size_t i;
+		u8 buf[32];
 
-		printk("%s: cnt = %d\n", __func__, cnt);
-		if (cnt == 0) {
-			if (done != 0) {
-				return done;
-			}
-			if (filep->f_flags & O_NONBLOCK)
-				return -EAGAIN;
-			msleep_interruptible(100);
-			if (signal_pending(current))
-				return -ERESTARTSYS;
-		} else {
-			size_t todo = min(len - done, (size_t)cnt);
-			size_t i;
-			u8 buf[32];
-
-			todo = min(todo, (size_t)32);
-			
-			if (copy_from_user(buf, &buffer[done], todo)) {
-				return -EFAULT;
-			}
-			for (i = 0; i < todo; i++) {
-				ret = i2c_smbus_read_byte_data(client,
-								  STREAM_DATA_REG);
-				if (ret < 0) {
-					return ret;
-				}
-			}
-
-			if (copy_to_user(buf, &buffer[done], todo)) {
-				return -EFAULT;
-			}
-			done += todo;
+		if (copy_from_user(buf, &buffer[done], todo)) {
+			return -EFAULT;
 		}
+		for (i = 0; i < todo; i++) {
+			ret = i2c_smbus_write_byte_data(client,
+							STREAM_DATA_REG,
+							buf[i]);
+			if (ret < 0) {
+				return ret;
+			}
+		}
+
+		done += todo;
 	}
 
 	return len;
@@ -167,9 +144,6 @@ static int i2c_master_stream_probe(struct i2c_client *client, const struct i2c_d
 {
 	struct stream_data *stream;
 	int ret;
-
-	printk("%s: i2c_master_stream_major=%d\n", __func__,
-	       i2c_master_stream_major);
 
 	stream = devm_kzalloc(&client->dev, sizeof(struct stream_data), GFP_KERNEL);
 	if (!stream)
