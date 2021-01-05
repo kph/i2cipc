@@ -315,7 +315,8 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 	cdev_init(&stream->cdev, &fops);
 	ret = cdev_device_add(&stream->cdev, &stream->dev);
 	if (ret) {
-		goto err_mem;
+		kfree(stream);
+		return ret;
 	}
 	stream->cdev.owner = fops.owner;
 	
@@ -335,8 +336,7 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 
 	ret = i2c_slave_register(client, i2c_slave_stream_slave_cb);
 	if (ret) {
-	err_mem:
-		put_device(&stream->dev);
+		cdev_device_del(&stream->cdev, &stream->dev);
 		return ret;
 	}
 
@@ -348,7 +348,6 @@ static int i2c_slave_stream_remove(struct i2c_client *client)
 	struct stream_data *stream = i2c_get_clientdata(client);
 
 	cdev_device_del(&stream->cdev, &stream->dev);
-	put_device(&stream->dev);
 	i2c_slave_unregister(client);
 	
 	return 0;
