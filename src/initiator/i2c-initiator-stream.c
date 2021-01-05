@@ -53,10 +53,18 @@ static ssize_t i2c_master_stream_read(struct file *filep, char *buffer, size_t l
 	struct i2c_client *client = stream->client;
 	int cnt;
 	size_t done = 0;
+	int error_cnt = 0;
 	
 	while (done < len) {
 		cnt = i2c_smbus_read_byte_data(client, STREAM_CNT_REG);
-		
+		if (cnt < 0) {
+			if (error_cnt++ > 10) {
+				return cnt;
+			}
+			cnt = 0;
+		} else {
+			error_cnt = 0;
+		}
 		if (cnt == 0) {
 			if (done != 0) {
 				return done;
@@ -70,12 +78,22 @@ static ssize_t i2c_master_stream_read(struct file *filep, char *buffer, size_t l
 			size_t todo = min(len - done, (size_t)cnt);
 			size_t i;
 			u8 buf[32];
-
+		
 			todo = min(todo, (size_t)32);
-			
+//			printk("%s: cnt=%d todo=%ld\n", __func__, cnt, todo);
+
 			for (i = 0; i < todo; i++) {
 				buf[i] = i2c_smbus_read_byte_data(client,
 								  STREAM_DATA_REG);
+				if (buf[i] < 0) {
+					if (error_cnt++ > 10) {
+						return buf[i];
+					}
+					msleep_interruptible(100);
+					i--;
+				} else {
+					error_cnt = 0;
+				}
 			}
 
 			if (copy_to_user(&buffer[done], buf, todo)) {
@@ -93,6 +111,7 @@ static ssize_t i2c_master_stream_write(struct file *filep, const char *buffer, s
 	struct i2c_client *client = stream->client;
 	size_t done = 0;
 	int ret;
+	int error_cnt;
 	
 	while (done < len) {
 		size_t todo = min(len - done, (size_t)32);
@@ -102,19 +121,26 @@ static ssize_t i2c_master_stream_write(struct file *filep, const char *buffer, s
 		if (copy_from_user(buf, &buffer[done], todo)) {
 			return -EFAULT;
 		}
+		error_cnt = 0;
 		for (i = 0; i < todo; i++) {
 			ret = i2c_smbus_write_byte_data(client,
 							STREAM_DATA_REG,
 							buf[i]);
 			if (ret < 0) {
-				return ret;
+				if (error_cnt++ > 10) {
+					return done != 0 ? done : ret;
+				}
+				msleep_interruptible(100);
+				i--;
+			} else {
+				error_cnt = 0;
 			}
 		}
 
 		done += todo;
 	}
 
-	return len;
+	return done;
 }
 
 static int i2c_master_stream_release(struct inode *inodep, struct file *filep)
@@ -158,7 +184,7 @@ static int i2c_master_stream_probe(struct i2c_client *client, const struct i2c_d
 	cdev_init(&stream->cdev, &fops);
 	ret = cdev_device_add(&stream->cdev, &stream->dev);
 	if (ret) {
-		put_device(&stream->dev);
+		kfree(stream);
 		return ret;
 	}
 	stream->cdev.owner = fops.owner;
@@ -175,7 +201,6 @@ static int i2c_master_stream_remove(struct i2c_client *client)
 	struct stream_data *stream = i2c_get_clientdata(client);
 
 	cdev_device_del(&stream->cdev, &stream->dev);
-	put_device(&stream->dev);
 	
 	return 0;
 }
