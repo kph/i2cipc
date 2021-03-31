@@ -6,7 +6,6 @@
  *
  */
 
-#include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/fs.h>
@@ -219,17 +218,24 @@ static struct i2c_driver i2c_master_stream_driver = {
 	.remove = i2c_master_stream_remove,
 	.id_table = i2c_master_stream_id,
 };
-module_i2c_driver(i2c_master_stream_driver);
 
 static int __init i2c_master_stream_init(void)
 {
+	int err;
+
+	err = i2c_add_driver(&i2c_master_stream_driver);
+	if (err < 0)
+		return err;
+
 	i2c_master_stream_major = register_chrdev(0, DEVICE_NAME, &fops);
 	if (i2c_master_stream_major < 0) {
+		i2c_del_driver(&i2c_master_stream_driver);
 		return i2c_master_stream_major;
 	}
 
 	i2c_master_stream_class = class_create(THIS_MODULE, CLASS_NAME);
 	if (IS_ERR(i2c_master_stream_class)) {
+		i2c_del_driver(&i2c_master_stream_driver);
 		unregister_chrdev(i2c_master_stream_major, DEVICE_NAME);
 		return PTR_ERR(i2c_master_stream_class);
 	}
