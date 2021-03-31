@@ -50,8 +50,8 @@ struct stream_data {
 static int i2c_slave_stream_major;
 static struct class *i2c_slave_stream_class;
 
-static int i2c_slave_stream_slave_cb(struct i2c_client *client,
-				     enum i2c_slave_event event, u8 *val)
+static int i2c_slave_stream_cb(struct i2c_client *client,
+			       enum i2c_slave_event event, u8 *val)
 {
 	struct stream_data *stream = i2c_get_clientdata(client);
 	unsigned long head, tail, cnt;
@@ -334,7 +334,7 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 
 	i2c_set_clientdata(client, stream);
 
-	ret = i2c_slave_register(client, i2c_slave_stream_slave_cb);
+	ret = i2c_slave_register(client, i2c_slave_stream_cb);
 	if (ret) {
 		cdev_device_del(&stream->cdev, &stream->dev);
 		return ret;
@@ -367,17 +367,24 @@ static struct i2c_driver i2c_slave_stream_driver = {
 	.remove = i2c_slave_stream_remove,
 	.id_table = i2c_slave_stream_id,
 };
-module_i2c_driver(i2c_slave_stream_driver);
 
 static int __init i2c_slave_stream_init(void)
 {
+	int err;
+
+	err = i2c_register_driver(THIS_MODULE, &i2c_slave_stream_driver);
+	if (err < 0)
+		return err;
+
 	i2c_slave_stream_major = register_chrdev(0, DEVICE_NAME, &fops);
 	if (i2c_slave_stream_major < 0) {
+		i2c_del_driver(&i2c_slave_stream_driver);
 		return i2c_slave_stream_major;
 	}
 
 	i2c_slave_stream_class = class_create(THIS_MODULE, CLASS_NAME);
 	if (IS_ERR(i2c_slave_stream_class)) {
+		i2c_del_driver(&i2c_slave_stream_driver);
 		unregister_chrdev(i2c_slave_stream_major, DEVICE_NAME);
 		return PTR_ERR(i2c_slave_stream_class);
 	}
@@ -390,6 +397,7 @@ static void __exit i2c_slave_stream_exit(void)
 	class_unregister(i2c_slave_stream_class);
 	class_destroy(i2c_slave_stream_class);
 	unregister_chrdev(i2c_slave_stream_major, DEVICE_NAME);
+	i2c_del_driver(&i2c_slave_stream_driver);
 }
 
 module_init(i2c_slave_stream_init);
