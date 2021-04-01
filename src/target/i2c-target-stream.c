@@ -178,8 +178,7 @@ static int i2c_slave_stream_open(struct inode *inode, struct file *filep)
 static ssize_t i2c_slave_stream_read(struct file *filep, char *buffer, size_t len, loff_t *offset)
 {
 	struct stream_data *stream = filep->private_data;
-	unsigned long head;
-	unsigned long tail;
+	unsigned long head, tail;
 	int cnt;
 	size_t done = 0;
 	
@@ -234,13 +233,13 @@ static ssize_t i2c_slave_stream_write(struct file *filep, const char *buffer, si
 		if (down_interruptible(&stream->to_host.sem))
 			return -ERESTARTSYS;
 
-		spin_lock(&stream->to_host.lock);
+		spin_lock_irq(&stream->to_host.lock);
 		
 		head = stream->to_host.buffer.head;
 		tail = READ_ONCE(stream->to_host.buffer.tail);
 
 		cnt = CIRC_SPACE_TO_END(head, tail, I2C_SLAVE_STREAM_BUFSIZE);
-		spin_unlock(&stream->to_host.lock);
+		spin_unlock_irq(&stream->to_host.lock);
 
 		if (cnt == 0) {
 			up(&stream->to_host.sem);
