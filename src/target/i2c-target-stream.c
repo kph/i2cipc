@@ -187,13 +187,13 @@ static ssize_t i2c_slave_stream_read(struct file *filep, char *buffer, size_t le
 		if (down_interruptible(&stream->from_host.sem))
 			return -ERESTARTSYS;
 		    
-		spin_lock(&stream->from_host.lock);
+		spin_lock_irq(&stream->from_host.lock);
 
 		head = smp_load_acquire(&stream->from_host.buffer.head);
 		tail = stream->from_host.buffer.tail;
 
 		cnt = CIRC_CNT_TO_END(head, tail, I2C_SLAVE_STREAM_BUFSIZE);
-		spin_unlock(&stream->from_host.lock);
+		spin_unlock_irq(&stream->from_host.lock);
 		
 		if (cnt == 0) {
 			up(&stream->from_host.sem);
