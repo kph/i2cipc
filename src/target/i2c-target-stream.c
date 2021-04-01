@@ -394,7 +394,6 @@ static int __init i2c_slave_stream_init(void)
 
 static void __exit i2c_slave_stream_exit(void)
 {
-	class_unregister(i2c_slave_stream_class);
 	class_destroy(i2c_slave_stream_class);
 	unregister_chrdev(i2c_slave_stream_major, DEVICE_NAME);
 	i2c_del_driver(&i2c_slave_stream_driver);
