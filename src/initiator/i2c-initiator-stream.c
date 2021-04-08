@@ -65,6 +65,8 @@ static ssize_t i2c_master_stream_read(struct file *filep, char *buffer, size_t l
 			error_cnt = 0;
 		}
 		if (cnt == 0) {
+			i2c_smbus_write_byte_data(client, STREAM_CNT_REG,
+						  0x80);
 			if (done != 0) {
 				return done;
 			}
