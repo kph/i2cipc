@@ -102,6 +102,18 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 			}
 			break;
 
+		case STREAM_CNT_REG:
+			spin_lock(&stream->to_host.lock);
+			smp_store_release(&stream->to_host.frame,
+					  stream->to_host.buffer.tail);
+			if (CIRC_CNT(stream->to_host.buffer.head,
+				     stream->to_host.frame,
+				     I2C_SLAVE_STREAM_BUFSIZE) == 0) {
+				wake_up(&stream->to_host.wait);
+			}
+			spin_unlock(&stream->to_host.lock);
+			break;
+
 		default:
 			spin_unlock(&stream->from_host.lock);
 			return ENOENT;
@@ -188,16 +200,6 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 			wake_up(&stream->from_host.wait);
 		}
 		spin_unlock(&stream->from_host.lock);
-
-		spin_lock(&stream->to_host.lock);
-		smp_store_release(&stream->to_host.frame,
-				  stream->to_host.buffer.tail);
-		if (CIRC_CNT(stream->to_host.buffer.head,
-			     stream->to_host.frame,
-			     I2C_SLAVE_STREAM_BUFSIZE) == 0) {
-			wake_up(&stream->to_host.wait);
-		}
-		spin_unlock(&stream->to_host.lock);
 		break;
 
 	default:
@@ -291,8 +293,10 @@ static ssize_t i2c_slave_stream_write(struct file *filep, const char *buffer, si
 				return -EAGAIN;
 			}
 			if (wait_event_interruptible(stream->to_host.wait,
-						     (smp_load_acquire(&stream->to_host.buffer.head) != 
-						      stream->to_host.frame)))
+						     (CIRC_SPACE(
+							     smp_load_acquire(&stream->to_host.buffer.head),
+							     stream->to_host.frame,
+							     I2C_SLAVE_STREAM_BUFSIZE) > 0)))
 				return -ERESTARTSYS;
 		} else {
 			size_t todo = min(len - done, (size_t)cnt);
