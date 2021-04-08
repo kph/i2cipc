@@ -85,16 +85,12 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 		spin_lock(&stream->from_host.lock);
 		if (stream->offset == 0) {	/* Register is a single byte */
 			stream->reg = *val;
-			if (stream->reg != STREAM_DATA_REG &&
-			    stream->reg != STREAM_CNT_REG) {
-				spin_unlock(&stream->from_host.lock);
-				return ENOENT;
-			}
-		} else {
-			if (stream->reg != STREAM_DATA_REG) {
-				spin_unlock(&stream->from_host.lock);
-				return ENOENT;
-			}
+			stream->offset++;
+			spin_unlock(&stream->from_host.lock);
+			break;
+		}
+		switch (stream->reg) {
+		case STREAM_DATA_REG:
 			head = stream->from_host.buffer.head;
 			tail = READ_ONCE(stream->from_host.buffer.tail);
 			if (CIRC_SPACE(head, tail, I2C_SLAVE_STREAM_BUFSIZE) >= 1) {
@@ -104,7 +100,13 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 			} else {
 				stream->overrun++;
 			}
+			break;
+
+		default:
+			spin_unlock(&stream->from_host.lock);
+			return ENOENT;
 		}
+
 		stream->offset++;
 		spin_unlock(&stream->from_host.lock);
 		break;
