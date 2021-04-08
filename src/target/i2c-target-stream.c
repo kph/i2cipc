@@ -40,7 +40,7 @@ struct stream_buffer {
 	struct semaphore sem;
 	spinlock_t lock;
 	struct circ_buf buffer;
-	int frame_head;
+	int frame;
 	u32 crc32;
 	char buf[I2C_SLAVE_STREAM_BUFSIZE];
 };
@@ -124,8 +124,8 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 			ch = stream->to_host.buffer.buf[tail];
 			stream->to_host.crc32 = crc32_le(stream->to_host.crc32,
 							 &ch, 1);
-			smp_store_release(&stream->to_host.buffer.tail,
-					  (tail + 1) & (I2C_SLAVE_STREAM_BUFSIZE - 1));
+			stream->to_host.buffer.tail =
+				(tail + 1) & (I2C_SLAVE_STREAM_BUFSIZE - 1);
 		}
 		*val = stream->to_host.buffer.buf[tail];	
 		spin_unlock(&stream->to_host.lock);
@@ -188,8 +188,10 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 		spin_unlock(&stream->from_host.lock);
 
 		spin_lock(&stream->to_host.lock);
+		smp_store_release(&stream->to_host.frame,
+				  stream->to_host.buffer.tail);
 		if (CIRC_CNT(stream->to_host.buffer.head,
-			     stream->to_host.buffer.tail,
+			     stream->to_host.frame,
 			     I2C_SLAVE_STREAM_BUFSIZE) == 0) {
 			wake_up(&stream->to_host.wait);
 		}
@@ -273,7 +275,7 @@ static ssize_t i2c_slave_stream_write(struct file *filep, const char *buffer, si
 		spin_lock_irq(&stream->to_host.lock);
 		
 		head = stream->to_host.buffer.head;
-		tail = READ_ONCE(stream->to_host.buffer.tail);
+		tail = READ_ONCE(stream->to_host.frame);
 
 		cnt = CIRC_SPACE_TO_END(head, tail, I2C_SLAVE_STREAM_BUFSIZE);
 		spin_unlock_irq(&stream->to_host.lock);
@@ -288,7 +290,7 @@ static ssize_t i2c_slave_stream_write(struct file *filep, const char *buffer, si
 			}
 			if (wait_event_interruptible(stream->to_host.wait,
 						     (smp_load_acquire(&stream->to_host.buffer.head) != 
-						      stream->to_host.buffer.tail)))
+						      stream->to_host.frame)))
 				return -ERESTARTSYS;
 		} else {
 			size_t todo = min(len - done, (size_t)cnt);
