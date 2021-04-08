@@ -245,8 +245,10 @@ static ssize_t i2c_slave_stream_read(struct file *filep, char *buffer, size_t le
 			if (filep->f_flags & O_NONBLOCK)
 				return -EAGAIN;
 			if (wait_event_interruptible(stream->from_host.wait,
-						     (smp_load_acquire(&stream->from_host.buffer.head) != 
-						      stream->from_host.buffer.tail)))
+						     (CIRC_CNT(
+							     smp_load_acquire(&stream->from_host.buffer.head), 
+							     stream->from_host.buffer.tail,
+							     I2C_SLAVE_STREAM_BUFSIZE) > 0)))
 				return -ERESTARTSYS;
 		} else {
 			size_t todo = min(len - done, (size_t)cnt);
