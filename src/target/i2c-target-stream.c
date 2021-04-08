@@ -21,6 +21,7 @@
 #include <linux/device.h>
 #include <linux/cdev.h>
 #include <linux/uaccess.h>
+#include <linux/crc32.h>
 
 #define  DEVICE_NAME "i2c-slave-stream-0" /* fixme per unit */
 #define  CLASS_NAME  "i2c-slave-stream"
@@ -29,13 +30,24 @@
 
 #define STREAM_DATA_REG (0x40)
 #define STREAM_CNT_REG (0x41)
+#define STREAM_CRC_REG0 (0x42)
+#define STREAM_CRC_REG1 (0x43)
+#define STREAM_CRC_REG2 (0x44)
+#define STREAM_CRC_REG3 (0x45)
 
 struct stream_buffer {
 	wait_queue_head_t wait;
 	struct semaphore sem;
 	spinlock_t lock;
 	struct circ_buf buffer;
+	int frame_head;
+	u32 crc32;
 	char buf[I2C_SLAVE_STREAM_BUFSIZE];
+};
+
+
+struct stream_bidirectional {
+	struct stream_buffer from_host, to_host;
 };
 
 struct stream_data {
@@ -49,6 +61,11 @@ struct stream_data {
 
 static int i2c_slave_stream_major;
 static struct class *i2c_slave_stream_class;
+
+static u8 get_reg32(u32 reg, int offset)
+{
+	return (reg >> (offset << 3)) & 0xff;
+}
 
 static int i2c_slave_stream_cb(struct i2c_client *client,
 			       enum i2c_slave_event event, u8 *val)
@@ -104,6 +121,9 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 		tail = stream->to_host.buffer.tail;
 
 		if (CIRC_CNT(head, tail, I2C_SLAVE_STREAM_BUFSIZE) >= 1) {
+			ch = stream->to_host.buffer.buf[tail];
+			stream->to_host.crc32 = crc32_le(stream->to_host.crc32,
+							 &ch, 1);
 			smp_store_release(&stream->to_host.buffer.tail,
 					  (tail + 1) & (I2C_SLAVE_STREAM_BUFSIZE - 1));
 		}
@@ -116,7 +136,9 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 		head = smp_load_acquire(&stream->to_host.buffer.head);
 		tail = stream->to_host.buffer.tail;
 		cnt = CIRC_CNT(head, tail, I2C_SLAVE_STREAM_BUFSIZE);
-		if (stream->reg == STREAM_CNT_REG) {
+
+		switch (stream->reg) {
+		case STREAM_CNT_REG:
 			if (cnt > 255) {
 				cnt = 255;
 			}
@@ -124,12 +146,27 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 				cnt = 0;
 			}
 			*val = cnt;
-		} else {
+			break;
+
+		case STREAM_DATA_REG:
 			ch = 0;
 			if (cnt >= 1) {
 				ch = stream->to_host.buffer.buf[tail];
 			}			
 			*val = ch;
+			break;
+
+		case STREAM_CRC_REG0:
+		case STREAM_CRC_REG1:
+		case STREAM_CRC_REG2:
+		case STREAM_CRC_REG3:
+			*val = get_reg32(~stream->to_host.crc32,
+					 stream->reg - STREAM_CRC_REG0);
+			break;
+
+		default:
+			*val = 0;
+			break;
 		}
 		spin_unlock(&stream->to_host.lock);
 
