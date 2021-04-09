@@ -99,6 +99,8 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 			tail = READ_ONCE(stream->from_host.buffer.tail);
 			if (CIRC_SPACE(head, tail, I2C_SLAVE_STREAM_BUFSIZE) >= 1) {
 				stream->from_host.buffer.buf[head] = *val;
+				stream->from_host.crc32 = crc32_le(
+					stream->from_host.crc32, val, 1);
 				smp_store_release(&stream->from_host.buffer.head,
 						  (head + 1) & (I2C_SLAVE_STREAM_BUFSIZE - 1));
 			} else {
@@ -119,6 +121,10 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 					wake_up(&stream->to_host.wait);
 				}
 				spin_unlock(&stream->to_host.lock);
+				break;
+
+			case 0x40:
+				stream->from_host.crc32 = ~0;
 				break;
 			}
 			break;
@@ -185,6 +191,14 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 		case STREAM_READ_CRC_REG3:
 			*val = get_reg32(~stream->to_host.crc32,
 					 stream->reg - STREAM_READ_CRC_REG0);
+			break;
+
+		case STREAM_WRITE_CRC_REG0:
+		case STREAM_WRITE_CRC_REG1:
+		case STREAM_WRITE_CRC_REG2:
+		case STREAM_WRITE_CRC_REG3:
+			*val = get_reg32(~stream->from_host.crc32,
+					 stream->reg - STREAM_WRITE_CRC_REG0);
 			break;
 
 		default:
