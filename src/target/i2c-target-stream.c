@@ -101,8 +101,8 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 				stream->from_host.buffer.buf[head] = *val;
 				stream->from_host.crc32 = crc32_le(
 					stream->from_host.crc32, val, 1);
-				smp_store_release(&stream->from_host.buffer.head,
-						  (head + 1) & (I2C_SLAVE_STREAM_BUFSIZE - 1));
+				stream->from_host.buffer.head =
+					(head + 1) & (I2C_SLAVE_STREAM_BUFSIZE - 1);
 			} else {
 				stream->overrun++;
 			}
@@ -124,7 +124,16 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 				break;
 
 			case 0x40:
+				spin_lock(&stream->from_host.lock);
 				stream->from_host.crc32 = ~0;
+				smp_store_release(&stream->from_host.frame,
+						  stream->from_host.buffer.head);
+				if (CIRC_CNT(stream->from_host.frame,
+					     stream->from_host.buffer.tail,
+					     I2C_SLAVE_STREAM_BUFSIZE) > 0) {
+					wake_up(&stream->from_host.wait);
+				}
+				spin_unlock(&stream->from_host.lock);
 				break;
 			}
 			break;
@@ -216,13 +225,6 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 
 	case I2C_SLAVE_STOP:
 		stream->offset = 0;
-		spin_lock(&stream->from_host.lock);
-		if (CIRC_CNT(stream->from_host.buffer.head,
-			     stream->from_host.buffer.tail,
-			     I2C_SLAVE_STREAM_BUFSIZE) >= 1) {
-			wake_up(&stream->from_host.wait);
-		}
-		spin_unlock(&stream->from_host.lock);
 		break;
 
 	default:
@@ -254,7 +256,7 @@ static ssize_t i2c_slave_stream_read(struct file *filep, char *buffer, size_t le
 		    
 		spin_lock_irq(&stream->from_host.lock);
 
-		head = smp_load_acquire(&stream->from_host.buffer.head);
+		head = smp_load_acquire(&stream->from_host.frame);
 		tail = stream->from_host.buffer.tail;
 
 		cnt = CIRC_CNT_TO_END(head, tail, I2C_SLAVE_STREAM_BUFSIZE);
@@ -269,7 +271,7 @@ static ssize_t i2c_slave_stream_read(struct file *filep, char *buffer, size_t le
 				return -EAGAIN;
 			if (wait_event_interruptible(stream->from_host.wait,
 						     (CIRC_CNT(
-							     smp_load_acquire(&stream->from_host.buffer.head), 
+							     smp_load_acquire(&stream->from_host.frame),
 							     stream->from_host.buffer.tail,
 							     I2C_SLAVE_STREAM_BUFSIZE) > 0)))
 				return -ERESTARTSYS;
