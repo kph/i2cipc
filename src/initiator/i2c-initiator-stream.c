@@ -36,6 +36,7 @@
 #define STREAM_WRITE_CRC_REG1 (0x47)
 #define STREAM_WRITE_CRC_REG2 (0x48)
 #define STREAM_WRITE_CRC_REG3 (0x49)
+#define STREAM_CTL_REG (0x4a)
 
 struct stream_data {
 	struct device dev;
@@ -112,12 +113,12 @@ static ssize_t i2c_master_stream_read(struct file *filep, char *buffer, size_t l
 				      (i2c_smbus_read_byte_data(client, STREAM_READ_CRC_REG2) << 16) |
 				      (i2c_smbus_read_byte_data(client, STREAM_READ_CRC_REG3) << 24));
 			if (crc32_calc != crc32_recv) {
-				i2c_smbus_write_byte_data(client, STREAM_CNT_REG,
+				i2c_smbus_write_byte_data(client, STREAM_CTL_REG,
 							  0x20);
 				continue;
 			}
 			
-			i2c_smbus_write_byte_data(client, STREAM_CNT_REG,
+			i2c_smbus_write_byte_data(client, STREAM_CTL_REG,
 						  0x80);
 				      
 			if (copy_to_user(&buffer[done], buf, todo)) {
@@ -169,12 +170,12 @@ static ssize_t i2c_master_stream_write(struct file *filep, const char *buffer, s
 			      (i2c_smbus_read_byte_data(client, STREAM_WRITE_CRC_REG2) << 16) |
 			      (i2c_smbus_read_byte_data(client, STREAM_WRITE_CRC_REG3) << 24));
 		if (crc32_calc != crc32_recv) {
-			i2c_smbus_write_byte_data(client, STREAM_CNT_REG,
+			i2c_smbus_write_byte_data(client, STREAM_CTL_REG,
 						  0x10);
 			continue;
 		}
 
-		i2c_smbus_write_byte_data(client, STREAM_CNT_REG,
+		i2c_smbus_write_byte_data(client, STREAM_CTL_REG,
 					  0x40);
 
 		done += todo;
