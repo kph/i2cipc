@@ -38,6 +38,7 @@
 #define STREAM_WRITE_CRC_REG1 (0x47)
 #define STREAM_WRITE_CRC_REG2 (0x48)
 #define STREAM_WRITE_CRC_REG3 (0x49)
+#define STREAM_CTL_REG (0x4a)
 
 struct stream_buffer {
 	wait_queue_head_t wait;
@@ -59,6 +60,7 @@ struct stream_data {
 	struct cdev cdev;
 	u8 offset;
 	u8 reg;
+	u8 ctl_write;
 	u32 overrun;
 	struct stream_buffer from_host, to_host;
 };
@@ -108,7 +110,8 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 			}
 			break;
 
-		case STREAM_CNT_REG:
+		case STREAM_CTL_REG:
+			stream->ctl_write = *val;
 			switch (*val) {
 			case 0x80:
 				spin_lock(&stream->to_host.lock);
@@ -227,6 +230,10 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 					 stream->reg - STREAM_WRITE_CRC_REG0);
 			break;
 
+		case STREAM_CTL_REG:
+			*val = stream->ctl_write;
+			break;
+			
 		default:
 			*val = 0;
 			break;
