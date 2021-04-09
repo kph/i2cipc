@@ -30,10 +30,14 @@
 
 #define STREAM_DATA_REG (0x40)
 #define STREAM_CNT_REG (0x41)
-#define STREAM_CRC_REG0 (0x42)
-#define STREAM_CRC_REG1 (0x43)
-#define STREAM_CRC_REG2 (0x44)
-#define STREAM_CRC_REG3 (0x45)
+#define STREAM_READ_CRC_REG0 (0x42)
+#define STREAM_READ_CRC_REG1 (0x43)
+#define STREAM_READ_CRC_REG2 (0x44)
+#define STREAM_READ_CRC_REG3 (0x45)
+#define STREAM_WRITE_CRC_REG0 (0x46)
+#define STREAM_WRITE_CRC_REG1 (0x47)
+#define STREAM_WRITE_CRC_REG2 (0x48)
+#define STREAM_WRITE_CRC_REG3 (0x49)
 
 struct stream_buffer {
 	wait_queue_head_t wait;
@@ -171,12 +175,12 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 			*val = ch;
 			break;
 
-		case STREAM_CRC_REG0:
-		case STREAM_CRC_REG1:
-		case STREAM_CRC_REG2:
-		case STREAM_CRC_REG3:
+		case STREAM_READ_CRC_REG0:
+		case STREAM_READ_CRC_REG1:
+		case STREAM_READ_CRC_REG2:
+		case STREAM_READ_CRC_REG3:
 			*val = get_reg32(~stream->to_host.crc32,
-					 stream->reg - STREAM_CRC_REG0);
+					 stream->reg - STREAM_READ_CRC_REG0);
 			break;
 
 		default:
