@@ -21,16 +21,22 @@
 #include <linux/uaccess.h>
 #include <linux/delay.h>
 #include <linux/sched/signal.h>
+#include <linux/crc32.h>
 
 #define  DEVICE_NAME "i2c-master-stream-0" /* fixme per unit */
 #define  CLASS_NAME  "i2c-master-stream"
 
 #define STREAM_DATA_REG (0x40)
 #define STREAM_CNT_REG (0x41)
+#define STREAM_CRC_REG0 (0x42)
+#define STREAM_CRC_REG1 (0x43)
+#define STREAM_CRC_REG2 (0x44)
+#define STREAM_CRC_REG3 (0x45)
 
 struct stream_data {
 	struct device dev;
 	struct cdev cdev;
+	u32 crc;
 	struct i2c_client *client;
 };
 
@@ -53,7 +59,7 @@ static ssize_t i2c_master_stream_read(struct file *filep, char *buffer, size_t l
 	int cnt;
 	size_t done = 0;
 	int error_cnt = 0;
-	
+
 	while (done < len) {
 		cnt = i2c_smbus_read_byte_data(client, STREAM_CNT_REG);
 		if (cnt < 0) {
@@ -79,6 +85,7 @@ static ssize_t i2c_master_stream_read(struct file *filep, char *buffer, size_t l
 			size_t todo = min(len - done, (size_t)cnt);
 			size_t i;
 			u8 buf[32];
+			u32 crc32_calc, crc32_recv;
 		
 			todo = min(todo, (size_t)32);
 //			printk("%s: cnt=%d todo=%ld\n", __func__, cnt, todo);
@@ -97,6 +104,18 @@ static ssize_t i2c_master_stream_read(struct file *filep, char *buffer, size_t l
 				}
 			}
 
+			crc32_calc = ~crc32_le(~0, buf, todo);
+			crc32_recv = (i2c_smbus_read_byte_data(client, STREAM_CRC_REG0) |
+				      (i2c_smbus_read_byte_data(client, STREAM_CRC_REG1) << 8) |
+				      (i2c_smbus_read_byte_data(client, STREAM_CRC_REG2) << 16) |
+				      (i2c_smbus_read_byte_data(client, STREAM_CRC_REG3) << 24));
+			if (crc32_calc != crc32_recv) {
+				printk(KERN_EMERG "%s: crc32_calc = %x crc32_recv = %x\n",
+				       __func__, crc32_calc, crc32_recv);
+			}
+			i2c_smbus_write_byte_data(client, STREAM_CNT_REG,
+						  0x80);
+				      
 			if (copy_to_user(&buffer[done], buf, todo)) {
 				return -EFAULT;
 			}
