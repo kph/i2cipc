@@ -157,7 +157,7 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 			break;
 			
 		default:
-			return ENOENT;
+			return -ENOENT;
 		}
 
 		stream->offset++;
