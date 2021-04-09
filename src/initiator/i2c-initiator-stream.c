@@ -87,6 +87,7 @@ static ssize_t i2c_master_stream_read(struct file *filep, char *buffer, size_t l
 		} else {
 			size_t todo = min(len - done, (size_t)cnt);
 			size_t i;
+			int val;
 			u8 buf[32];
 			u32 crc32_calc, crc32_recv;
 		
@@ -94,15 +95,16 @@ static ssize_t i2c_master_stream_read(struct file *filep, char *buffer, size_t l
 //			printk("%s: cnt=%d todo=%ld\n", __func__, cnt, todo);
 
 			for (i = 0; i < todo; i++) {
-				buf[i] = i2c_smbus_read_byte_data(client,
+				val = i2c_smbus_read_byte_data(client,
 								  STREAM_DATA_REG);
-				if (buf[i] < 0) {
+				if (val < 0) {
 					if (error_cnt++ > 10) {
-						return buf[i];
+						return val;
 					}
 					msleep_interruptible(100);
 					i--;
 				} else {
+					buf[i] = val;
 					error_cnt = 0;
 				}
 			}
@@ -118,9 +120,25 @@ static ssize_t i2c_master_stream_read(struct file *filep, char *buffer, size_t l
 				continue;
 			}
 			
-			i2c_smbus_write_byte_data(client, STREAM_CTL_REG,
-						  0x80);
-				      
+			for (i = 0; i < 10; i++) {
+				i2c_smbus_write_byte_data(client,
+							  STREAM_CTL_REG,
+							  0x00);
+				val = i2c_smbus_read_byte_data(client,
+							       STREAM_CTL_REG);
+				if (val != 0x00)
+					continue;
+				i2c_smbus_write_byte_data(client,
+							  STREAM_CTL_REG,
+							  0x80);
+				val = i2c_smbus_read_byte_data(client,
+							       STREAM_CTL_REG);
+				if (val != 0x80)
+					continue;
+				break;
+			}
+			if (i == 10)
+				return -EIO;
 			if (copy_to_user(&buffer[done], buf, todo)) {
 				return -EFAULT;
 			}
@@ -143,6 +161,9 @@ static ssize_t i2c_master_stream_write(struct file *filep, const char *buffer, s
 		size_t i;
 		u8 buf[32];
 		u32 crc32_calc, crc32_recv;;
+
+		if (signal_pending(current))
+			return done ? done : -ERESTARTSYS;
 
 		if (copy_from_user(buf, &buffer[done], todo)) {
 			return -EFAULT;
@@ -175,8 +196,25 @@ static ssize_t i2c_master_stream_write(struct file *filep, const char *buffer, s
 			continue;
 		}
 
-		i2c_smbus_write_byte_data(client, STREAM_CTL_REG,
-					  0x40);
+		for (i = 0; i < 10; i++) {
+			i2c_smbus_write_byte_data(client,
+						  STREAM_CTL_REG,
+						  0x00);
+			ret = i2c_smbus_read_byte_data(client,
+						       STREAM_CTL_REG);
+			if (ret != 0x00)
+				continue;
+			i2c_smbus_write_byte_data(client,
+						  STREAM_CTL_REG,
+						  0x40);
+			ret = i2c_smbus_read_byte_data(client,
+						       STREAM_CTL_REG);
+			if (ret != 0x40)
+				continue;
+			break;
+		}
+		if (i == 10)
+			return -EIO;
 
 		done += todo;
 	}
