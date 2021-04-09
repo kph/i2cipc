@@ -107,18 +107,22 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 			break;
 
 		case STREAM_CNT_REG:
-			spin_lock(&stream->to_host.lock);
-			stream->to_host.crc32 = ~0;
-			smp_store_release(&stream->to_host.frame,
-					  stream->to_host.buffer.tail);
-			if (CIRC_CNT(stream->to_host.buffer.head,
-				     stream->to_host.frame,
-				     I2C_SLAVE_STREAM_BUFSIZE) == 0) {
-				wake_up(&stream->to_host.wait);
+			switch (*val) {
+			case 0x80:
+				spin_lock(&stream->to_host.lock);
+				stream->to_host.crc32 = ~0;
+				smp_store_release(&stream->to_host.frame,
+						  stream->to_host.buffer.tail);
+				if (CIRC_CNT(stream->to_host.buffer.head,
+					     stream->to_host.frame,
+					     I2C_SLAVE_STREAM_BUFSIZE) == 0) {
+					wake_up(&stream->to_host.wait);
+				}
+				spin_unlock(&stream->to_host.lock);
+				break;
 			}
-			spin_unlock(&stream->to_host.lock);
 			break;
-
+			
 		default:
 			spin_unlock(&stream->from_host.lock);
 			return ENOENT;
