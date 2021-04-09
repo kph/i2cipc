@@ -104,6 +104,7 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 
 		case STREAM_CNT_REG:
 			spin_lock(&stream->to_host.lock);
+			stream->to_host.crc32 = ~0;
 			smp_store_release(&stream->to_host.frame,
 					  stream->to_host.buffer.tail);
 			if (CIRC_CNT(stream->to_host.buffer.head,
@@ -376,7 +377,10 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 	spin_lock_init(&stream->to_host.lock);
 
 	stream->from_host.buffer.buf = stream->from_host.buf;
+	stream->from_host.crc32 = ~0;
+	
 	stream->to_host.buffer.buf = stream->to_host.buf;
+	stream->to_host.crc32 = ~0;
 
 	i2c_set_clientdata(client, stream);
 
