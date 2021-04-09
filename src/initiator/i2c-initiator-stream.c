@@ -116,7 +116,11 @@ static ssize_t i2c_master_stream_read(struct file *filep, char *buffer, size_t l
 			if (crc32_calc != crc32_recv) {
 				printk(KERN_EMERG "%s: crc32_calc = %x crc32_recv = %x\n",
 				       __func__, crc32_calc, crc32_recv);
+				i2c_smbus_write_byte_data(client, STREAM_CNT_REG,
+							  0x20);
+				continue;
 			}
+			
 			i2c_smbus_write_byte_data(client, STREAM_CNT_REG,
 						  0x80);
 				      
@@ -171,6 +175,9 @@ static ssize_t i2c_master_stream_write(struct file *filep, const char *buffer, s
 		if (crc32_calc != crc32_recv) {
 			printk(KERN_EMERG "%s: crc32_calc = %x crc32_recv = %x\n",
 			       __func__, crc32_calc, crc32_recv);
+			i2c_smbus_write_byte_data(client, STREAM_CNT_REG,
+						  0x10);
+			continue;
 		}
 
 		i2c_smbus_write_byte_data(client, STREAM_CNT_REG,
