@@ -123,6 +123,14 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 				spin_unlock(&stream->to_host.lock);
 				break;
 
+			case 0x20:
+				spin_lock(&stream->to_host.lock);
+				stream->to_host.crc32 = ~0;
+				stream->to_host.buffer.tail =
+					smp_load_acquire(&stream->to_host.frame);
+				spin_unlock(&stream->to_host.lock);
+				break;
+
 			case 0x40:
 				spin_lock(&stream->from_host.lock);
 				stream->from_host.crc32 = ~0;
@@ -135,6 +143,15 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 				}
 				spin_unlock(&stream->from_host.lock);
 				break;
+	
+			case 0x10:
+				spin_lock(&stream->from_host.lock);
+				stream->from_host.crc32 = ~0;
+				stream->from_host.buffer.head =
+					smp_load_acquire(&stream->from_host.frame);
+				spin_unlock(&stream->from_host.lock);
+				break;
+				
 			}
 			break;
 			
