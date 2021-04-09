@@ -28,10 +28,14 @@
 
 #define STREAM_DATA_REG (0x40)
 #define STREAM_CNT_REG (0x41)
-#define STREAM_CRC_REG0 (0x42)
-#define STREAM_CRC_REG1 (0x43)
-#define STREAM_CRC_REG2 (0x44)
-#define STREAM_CRC_REG3 (0x45)
+#define STREAM_READ_CRC_REG0 (0x42)
+#define STREAM_READ_CRC_REG1 (0x43)
+#define STREAM_READ_CRC_REG2 (0x44)
+#define STREAM_READ_CRC_REG3 (0x45)
+#define STREAM_WRITE_CRC_REG0 (0x46)
+#define STREAM_WRITE_CRC_REG1 (0x47)
+#define STREAM_WRITE_CRC_REG2 (0x48)
+#define STREAM_WRITE_CRC_REG3 (0x49)
 
 struct stream_data {
 	struct device dev;
@@ -105,10 +109,10 @@ static ssize_t i2c_master_stream_read(struct file *filep, char *buffer, size_t l
 			}
 
 			crc32_calc = ~crc32_le(~0, buf, todo);
-			crc32_recv = (i2c_smbus_read_byte_data(client, STREAM_CRC_REG0) |
-				      (i2c_smbus_read_byte_data(client, STREAM_CRC_REG1) << 8) |
-				      (i2c_smbus_read_byte_data(client, STREAM_CRC_REG2) << 16) |
-				      (i2c_smbus_read_byte_data(client, STREAM_CRC_REG3) << 24));
+			crc32_recv = (i2c_smbus_read_byte_data(client, STREAM_READ_CRC_REG0) |
+				      (i2c_smbus_read_byte_data(client, STREAM_READ_CRC_REG1) << 8) |
+				      (i2c_smbus_read_byte_data(client, STREAM_READ_CRC_REG2) << 16) |
+				      (i2c_smbus_read_byte_data(client, STREAM_READ_CRC_REG3) << 24));
 			if (crc32_calc != crc32_recv) {
 				printk(KERN_EMERG "%s: crc32_calc = %x crc32_recv = %x\n",
 				       __func__, crc32_calc, crc32_recv);
@@ -137,10 +141,15 @@ static ssize_t i2c_master_stream_write(struct file *filep, const char *buffer, s
 		size_t todo = min(len - done, (size_t)32);
 		size_t i;
 		u8 buf[32];
+		u32 crc32_calc, crc32_recv;;
 
 		if (copy_from_user(buf, &buffer[done], todo)) {
 			return -EFAULT;
 		}
+
+		i2c_smbus_write_byte_data(client, STREAM_CNT_REG,
+					  0x40);
+
 		error_cnt = 0;
 		for (i = 0; i < todo; i++) {
 			ret = i2c_smbus_write_byte_data(client,
@@ -155,6 +164,16 @@ static ssize_t i2c_master_stream_write(struct file *filep, const char *buffer, s
 			} else {
 				error_cnt = 0;
 			}
+		}
+
+		crc32_calc = ~crc32_le(~0, buf, todo);
+		crc32_recv = (i2c_smbus_read_byte_data(client, STREAM_WRITE_CRC_REG0) |
+			      (i2c_smbus_read_byte_data(client, STREAM_WRITE_CRC_REG1) << 8) |
+			      (i2c_smbus_read_byte_data(client, STREAM_WRITE_CRC_REG2) << 16) |
+			      (i2c_smbus_read_byte_data(client, STREAM_WRITE_CRC_REG3) << 24));
+		if (crc32_calc != crc32_recv) {
+			printk(KERN_EMERG "%s: crc32_calc = %x crc32_recv = %x\n",
+			       __func__, crc32_calc, crc32_recv);
 		}
 
 		done += todo;
