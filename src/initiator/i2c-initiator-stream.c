@@ -52,6 +52,8 @@ static int i2c_master_stream_open(struct inode *inode, struct file *filep)
 {
 	struct stream_data *stream = container_of(inode->i_cdev,
 						  struct stream_data, cdev);
+
+	get_device(&stream->dev);
 	filep->private_data = stream;
 	
 	return 0;
@@ -224,6 +226,9 @@ static ssize_t i2c_master_stream_write(struct file *filep, const char *buffer, s
 
 static int i2c_master_stream_release(struct inode *inodep, struct file *filep)
 {
+	struct stream_data *stream = filep->private_data;
+
+	put_device(&stream->dev);
 	return 0;
 }
 
@@ -271,6 +276,7 @@ static int i2c_master_stream_probe(struct i2c_client *client, const struct i2c_d
 	stream->client = client;
 
 	i2c_set_clientdata(client, stream);
+	get_device(&stream->dev);
 
 	return 0;
 };
@@ -280,7 +286,8 @@ static int i2c_master_stream_remove(struct i2c_client *client)
 	struct stream_data *stream = i2c_get_clientdata(client);
 
 	cdev_device_del(&stream->cdev, &stream->dev);
-	
+	put_device(&stream->dev);
+
 	return 0;
 }
 
