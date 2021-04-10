@@ -391,7 +391,6 @@ static void i2c_slave_stream_data_release(struct device *dev) {
 	printk(KERN_EMERG "in %s\n", __func__);
 	
 	stream = container_of(dev, struct stream_data, dev);
-
 	kfree(stream);
 }
 
@@ -452,6 +451,7 @@ static int i2c_slave_stream_remove(struct i2c_client *client)
 	struct stream_data *stream = i2c_get_clientdata(client);
 
 	i2c_slave_unregister(stream->client);
+	stream->client = NULL;
 	cdev_device_del(&stream->cdev, &stream->dev);
 	put_device(&stream->dev);
 	
