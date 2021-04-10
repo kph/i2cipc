@@ -56,6 +56,7 @@ struct stream_bidirectional {
 };
 
 struct stream_data {
+	struct i2c_client *client;
 	struct device dev;
 	struct cdev cdev;
 	u8 offset;
@@ -387,6 +388,8 @@ static struct file_operations fops =
 static void i2c_slave_stream_data_release(struct device *dev) {
 	struct stream_data *stream;
 
+	printk(KERN_EMERG "in %s\n", __func__);
+	
 	stream = container_of(dev, struct stream_data, dev);
 
 	kfree(stream);
@@ -405,6 +408,7 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 	stream->dev.devt = MKDEV(i2c_slave_stream_major, 0);
 	stream->dev.class = i2c_slave_stream_class;
 	stream->dev.release = i2c_slave_stream_data_release;
+	stream->client = client;
 	dev_set_name(&stream->dev, DEVICE_NAME);
 
 	cdev_init(&stream->cdev, &fops);
@@ -447,9 +451,9 @@ static int i2c_slave_stream_remove(struct i2c_client *client)
 {
 	struct stream_data *stream = i2c_get_clientdata(client);
 
+	i2c_slave_unregister(stream->client);
 	cdev_device_del(&stream->cdev, &stream->dev);
 	put_device(&stream->dev);
-	i2c_slave_unregister(client);
 	
 	return 0;
 }
