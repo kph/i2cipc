@@ -385,12 +385,12 @@ static struct file_operations fops =
 	.release = i2c_slave_stream_release,
 };
 
-static void i2c_slave_stream_data_release(struct device *dev) {
-	struct stream_data *stream;
+static void i2c_slave_stream_data_release(struct device *dev)
+{
+	struct stream_data *stream = container_of(dev, struct stream_data, dev);
 
 	printk(KERN_EMERG "in %s\n", __func__);
-	
-	stream = container_of(dev, struct stream_data, dev);
+
 	kfree(stream);
 }
 
@@ -408,12 +408,14 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 	stream->dev.class = i2c_slave_stream_class;
 	stream->dev.release = i2c_slave_stream_data_release;
 	stream->client = client;
+	stream->dev.parent = &client->dev;
 	dev_set_name(&stream->dev, DEVICE_NAME);
 
 	cdev_init(&stream->cdev, &fops);
-	ret = cdev_device_add(&stream->cdev, &stream->dev);
+	//ret = cdev_device_add(&stream->cdev, &stream->dev);
+	ret = cdev_add(&stream->cdev, stream->dev.devt, 1);
 	if (ret) {
-		kfree(stream);
+		//kfree(stream);
 		return ret;
 	}
 	stream->cdev.owner = fops.owner;
@@ -450,9 +452,10 @@ static int i2c_slave_stream_remove(struct i2c_client *client)
 {
 	struct stream_data *stream = i2c_get_clientdata(client);
 
+	printk(KERN_EMERG "%s: stream=%px\n", __func__, stream);
 	i2c_slave_unregister(stream->client);
-	stream->client = NULL;
-	cdev_device_del(&stream->cdev, &stream->dev);
+	//cdev_device_del(&stream->cdev, &stream->dev);
+	cdev_del(&stream->cdev);
 	put_device(&stream->dev);
 	
 	return 0;
