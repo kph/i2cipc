@@ -23,6 +23,10 @@
 #include <linux/uaccess.h>
 #include <linux/crc32.h>
 
+
+#define REGS_PER_TARGET (16)
+#define MAX_TARGET_REGS (16)
+
 #define  DEVICE_NAME "i2c-slave-stream-0" /* fixme per unit */
 #define  CLASS_NAME  "i2c-slave-stream"
 
@@ -62,7 +66,7 @@ struct stream_data {
 	struct i2c_client *client;
 	u8 offset;
 	u8 reg;
-	struct stream_end sx;
+	struct stream_end *sx[REGS_PER_TARGET];
 };
 
 #ifdef NOTYET
@@ -284,7 +288,7 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 			       enum i2c_slave_event event, u8 *val)
 {
 	struct stream_data *stream = i2c_get_clientdata(client);
-	struct stream_end *sx = &stream->sx;
+	struct stream_end *sx;
 	int ret = 0;
 	
 	switch (event) {
@@ -295,8 +299,15 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 	case I2C_SLAVE_WRITE_RECEIVED:
 		if (stream->offset == 0) {	/* Register is a single byte */
 			stream->reg = *val;
+			sx = stream->sx[stream->reg >> 4];
+			if (!sx)
+				ret = -ENOENT;
 		} else {
-			ret =  handle_write(stream, sx, val);
+			sx = stream->sx[stream->reg >> 4];
+			if (sx)
+				ret =  handle_write(stream, sx, val);
+			else
+				ret = -ENOENT;
 		}
 		stream->offset++;
 		break;
@@ -308,11 +319,15 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 			*val = 0;
 			break;
 		}
-		read_processed(sx, val);
+		sx = stream->sx[stream->reg >> 4];
+		if (sx)
+			read_processed(sx, val);
 		break;
 
 	case I2C_SLAVE_READ_REQUESTED:
-		read_requested(stream, sx, val);
+		sx = stream->sx[stream->reg >> 4];
+		if (sx)
+			read_requested(stream, sx, val);
 
 		/*
 		 * Do not increment offset here, because we don't know if
@@ -472,11 +487,16 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 	if (!stream)
 		return -ENOMEM;
 
-	sx = &stream->sx;
+	stream->client = client;
 
+	sx = devm_kzalloc(&client->dev, sizeof(struct stream_end), GFP_KERNEL);
+	if (!sx) {
+		return -ENOMEM;
+	}
+	stream->sx[4] = sx;
+	
 	sx->dev.devt = MKDEV(i2c_slave_stream_major, 0);
 	sx->dev.class = i2c_slave_stream_class;
-	stream->client = client;
 	sx->dev.parent = &client->dev;
 	dev_set_name(&sx->dev, DEVICE_NAME);
 	ret = device_register(&sx->dev);
@@ -524,13 +544,20 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 static int i2c_slave_stream_remove(struct i2c_client *client)
 {
 	struct stream_data *stream = i2c_get_clientdata(client);
-	struct stream_end *sx = &stream->sx;
-
+	struct stream_end *sx;
+	int i;
+	
 	printk(KERN_EMERG "%s: stream=%px\n", __func__, stream);
 	i2c_slave_unregister(stream->client);
 	//cdev_device_del(&sx->cdev, &sx->dev);
-	cdev_del(&sx->cdev);
-	device_unregister(&sx->dev);
+	for (i = 0; i < REGS_PER_TARGET; i++) {
+		sx = stream->sx[i];
+		if (sx) {
+			cdev_del(&sx->cdev);
+			device_unregister(&sx->dev);
+			stream->sx[i] = NULL;
+		}
+	}
 	
 	return 0;
 }
