@@ -207,12 +207,31 @@ static u8 get_ctl_reg(struct stream_data *stream) {
 	return stream->sx.ctl_write;
 }
 
+static void read_processed(struct stream_data *stream, u8 *val)
+{
+	unsigned long head, tail;
+	u8 ch;
+
+	/* The previous byte made it to the bus, get next one */
+	spin_lock(&stream->sx.to_host.lock);
+	head = smp_load_acquire(&stream->sx.to_host.buffer.head);
+	tail = stream->sx.to_host.buffer.tail;
+
+	if (CIRC_CNT(head, tail, I2C_SLAVE_STREAM_BUFSIZE) >= 1) {
+		ch = stream->sx.to_host.buffer.buf[tail];
+		stream->sx.to_host.crc32 = crc32_le(stream->sx.to_host.crc32,
+						    &ch, 1);
+		stream->sx.to_host.buffer.tail =
+			(tail + 1) & (I2C_SLAVE_STREAM_BUFSIZE - 1);
+	}
+	*val = stream->sx.to_host.buffer.buf[tail];	
+	spin_unlock(&stream->sx.to_host.lock);
+}
+
 static int i2c_slave_stream_cb(struct i2c_client *client,
 			       enum i2c_slave_event event, u8 *val)
 {
 	struct stream_data *stream = i2c_get_clientdata(client);
-	unsigned long head, tail;
-	u8 ch;
 	
 	switch (event) {
 	case I2C_SLAVE_WRITE_REQUESTED:
@@ -243,24 +262,12 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 
 	case I2C_SLAVE_READ_PROCESSED:
 		stream->offset++;
+		
 		if (stream->reg != STREAM_DATA_REG) {
 			*val = 0;
 			break;
 		}
-		/* The previous byte made it to the bus, get next one */
-		spin_lock(&stream->sx.to_host.lock);
-		head = smp_load_acquire(&stream->sx.to_host.buffer.head);
-		tail = stream->sx.to_host.buffer.tail;
-
-		if (CIRC_CNT(head, tail, I2C_SLAVE_STREAM_BUFSIZE) >= 1) {
-			ch = stream->sx.to_host.buffer.buf[tail];
-			stream->sx.to_host.crc32 = crc32_le(stream->sx.to_host.crc32,
-							 &ch, 1);
-			stream->sx.to_host.buffer.tail =
-				(tail + 1) & (I2C_SLAVE_STREAM_BUFSIZE - 1);
-		}
-		*val = stream->sx.to_host.buffer.buf[tail];	
-		spin_unlock(&stream->sx.to_host.lock);
+		read_processed(stream, val);
 		break;
 
 	case I2C_SLAVE_READ_REQUESTED:
