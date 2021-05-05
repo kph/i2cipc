@@ -23,9 +23,9 @@
 #include <linux/uaccess.h>
 #include <linux/crc32.h>
 
-#define REGS_PER_TARGET (16)
-#define MAX_TARGET_REGS (16)
-#define TARGET_REG(t) ((t) & (MAX_TARGET_REGS-1))
+#define REGS_PER_RESPONDER (16)
+#define MAX_RESPONDER_REGS (16)
+#define RESPONDER_REG(t) ((t) & (MAX_RESPONDER_REGS-1))
 
 #define  DEVICE_NAME "i2c-slave-stream-0" /* fixme per unit */
 #define  CLASS_NAME  "i2c-slave-stream"
@@ -66,8 +66,8 @@ struct stream_data {
 	struct i2c_client *client;
 	u8 offset;
 	u8 reg;
-	struct handler_ops *handler[REGS_PER_TARGET];
-	void *handler_data[REGS_PER_TARGET];
+	struct handler_ops *handler[REGS_PER_RESPONDER];
+	void *handler_data[REGS_PER_RESPONDER];
 };
 
 struct handler_ops {
@@ -196,7 +196,7 @@ static int sx_handle_write(struct stream_data *stream, u8 *val)
 	if (stream->offset == 0)
 		return 0;	/* Nothing to do on address byte */
 
-	switch (TARGET_REG(stream->reg)) {
+	switch (RESPONDER_REG(stream->reg)) {
 	case STREAM_DATA_REG:
 		set_data_reg(sx, val);
 		break;
@@ -237,7 +237,7 @@ static void sx_read_requested(struct stream_data *stream, u8 *val)
 {
 	struct stream_fdx *sx = stream->handler_data[stream->reg >> 4];
 
-	switch (TARGET_REG(stream->reg)) {
+	switch (RESPONDER_REG(stream->reg)) {
 	case STREAM_CNT_REG:
 		*val = get_cnt_reg(stream, sx);
 		break;
@@ -251,7 +251,7 @@ static void sx_read_requested(struct stream_data *stream, u8 *val)
 	case STREAM_READ_CRC_REG2:
 	case STREAM_READ_CRC_REG3:
 		*val = get_reg32(~sx->to_host.crc32,
-				 TARGET_REG(stream->reg) - STREAM_READ_CRC_REG0);
+				 RESPONDER_REG(stream->reg) - STREAM_READ_CRC_REG0);
 		break;
 
 	case STREAM_WRITE_CRC_REG0:
@@ -259,7 +259,7 @@ static void sx_read_requested(struct stream_data *stream, u8 *val)
 	case STREAM_WRITE_CRC_REG2:
 	case STREAM_WRITE_CRC_REG3:
 		*val = get_reg32(~sx->from_host.crc32,
-				 TARGET_REG(stream->reg) - STREAM_WRITE_CRC_REG0);
+				 RESPONDER_REG(stream->reg) - STREAM_WRITE_CRC_REG0);
 		break;
 
 	case STREAM_CTL_REG:
@@ -335,7 +335,7 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 	case I2C_SLAVE_READ_PROCESSED:
 		stream->offset++;
 		
-		if (TARGET_REG(stream->reg) != STREAM_DATA_REG) {
+		if (RESPONDER_REG(stream->reg) != STREAM_DATA_REG) {
 			*val = 0;
 			break;
 		}
@@ -553,7 +553,7 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 
 	stream->client = client;
 
-	for (i = 0; i < REGS_PER_TARGET; i++)
+	for (i = 0; i < REGS_PER_RESPONDER; i++)
 		stream->handler[i] = &null_handler_ops;
 	
 	ret = sx_register_chrdev(stream, 4);
@@ -562,7 +562,7 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 
 	ret = i2c_slave_register(client, i2c_slave_stream_cb);
 	if (ret) {
-		for (i = 0; i < REGS_PER_TARGET; i++)
+		for (i = 0; i < REGS_PER_RESPONDER; i++)
 			stream->handler[i]->remove(stream, i);
 
 		return ret;
@@ -578,7 +578,7 @@ static int i2c_slave_stream_remove(struct i2c_client *client)
 	
 	printk(KERN_EMERG "%s: stream=%px\n", __func__, stream);
 	i2c_slave_unregister(stream->client);
-	for (i = 0; i < REGS_PER_TARGET; i++)
+	for (i = 0; i < REGS_PER_RESPONDER; i++)
 		stream->handler[i]->remove(stream, i);
 	
 	return 0;
