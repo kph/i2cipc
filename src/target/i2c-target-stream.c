@@ -68,19 +68,21 @@ struct stream_data {
 	u8 offset;
 	u8 reg;
 	struct handler_ops *handler[REGS_PER_TARGET];
-	struct stream_end *sx[REGS_PER_TARGET];
+	void *handler_data[REGS_PER_TARGET];
 };
 
 struct handler_ops {
 	int (*handle_write)(struct stream_data *stream, u8 *val);
 	void (*read_processed)(struct stream_data *stream, u8 *val);
 	void (*read_requested)(struct stream_data *stream, u8 *val);
+	void (*remove)(struct stream_data *stream, u8 base);
 };
 
 static int i2c_slave_stream_major;
 static struct class *i2c_slave_stream_class;
 
-static void set_data_reg(struct stream_end *sx, u8 *val) {
+static void set_data_reg(struct stream_end *sx, u8 *val)
+{
 	unsigned long head, tail;
 
 	spin_lock(&sx->from_host.lock);
@@ -98,7 +100,8 @@ static void set_data_reg(struct stream_end *sx, u8 *val) {
 	spin_unlock(&sx->from_host.lock);
 }
 
-static void set_ctl_reg(struct stream_end *sx, u8 *val) {
+static void set_ctl_reg(struct stream_end *sx, u8 *val)
+{
 	sx->ctl_write = *val;
 	switch (*val) {
 	case 0x80:
@@ -158,7 +161,8 @@ static u8 get_reg32(u32 reg, int offset)
 	return (reg >> (offset << 3)) & 0xff;
 }
 
-static u8 get_cnt_reg(struct stream_data *stream, struct stream_end *sx) {
+static u8 get_cnt_reg(struct stream_data *stream, struct stream_end *sx)
+{
 	unsigned long head, tail, cnt;
 	
 	spin_lock(&sx->to_host.lock);
@@ -175,7 +179,8 @@ static u8 get_cnt_reg(struct stream_data *stream, struct stream_end *sx) {
 	return cnt;
 }
 
-static u8 get_data_reg(struct stream_end *sx) {
+static u8 get_data_reg(struct stream_end *sx)
+{
 	unsigned long head, tail, cnt;
 	u8 ch;
 
@@ -192,16 +197,19 @@ static u8 get_data_reg(struct stream_end *sx) {
 	return ch;
 }
 
-static u8 get_crc_reg(struct stream_data *stream, struct stream_end *sx, u8 base_reg) {
+static u8 get_crc_reg(struct stream_data *stream, struct stream_end *sx, u8 base_reg)
+{
 	return get_reg32(~sx->from_host.crc32, TARGET_REG(stream->reg) - base_reg);
 }
 
-static u8 get_ctl_reg(struct stream_end *sx) {
+static u8 get_ctl_reg(struct stream_end *sx)
+{
 	return sx->ctl_write;
 }
 
-static int sx_handle_write(struct stream_data *stream, u8 *val) {
-	struct stream_end *sx = stream->sx[stream->reg >> 4];
+static int sx_handle_write(struct stream_data *stream, u8 *val)
+{
+	struct stream_end *sx = stream->handler_data[stream->reg >> 4];
 	
 	switch (TARGET_REG(stream->reg)) {
 	case STREAM_DATA_REG:
@@ -220,7 +228,7 @@ static int sx_handle_write(struct stream_data *stream, u8 *val) {
 
 static void sx_read_processed(struct stream_data *stream, u8 *val)
 {
-	struct stream_end *sx = stream->sx[stream->reg >> 4];
+	struct stream_end *sx = stream->handler_data[stream->reg >> 4];
 	unsigned long head, tail;
 	u8 ch;
 
@@ -242,7 +250,7 @@ static void sx_read_processed(struct stream_data *stream, u8 *val)
 
 static void sx_read_requested(struct stream_data *stream, u8 *val)
 {
-	struct stream_end *sx = stream->sx[stream->reg >> 4];
+	struct stream_end *sx = stream->handler_data[stream->reg >> 4];
 
 	switch (TARGET_REG(stream->reg)) {
 	case STREAM_CNT_REG:
@@ -277,10 +285,45 @@ static void sx_read_requested(struct stream_data *stream, u8 *val)
 	}
 }
 
+static void sx_remove(struct stream_data *stream, u8 reg)
+{
+	struct stream_end *sx = stream->handler_data[reg];
+
+	//cdev_device_del(&sx->cdev, &sx->dev);
+	cdev_del(&sx->cdev);
+	device_unregister(&sx->dev);
+	stream->handler_data[reg] = NULL;
+}
+
 static struct handler_ops sx_handler_ops = {
 	.handle_write = sx_handle_write,
 	.read_processed = sx_read_processed,
 	.read_requested = sx_read_requested,
+	.remove = sx_remove,
+};
+
+static int null_handle_write(struct stream_data *stream, u8 *val)
+{
+	return -ENOENT;
+}
+
+static void null_read_processed(struct stream_data *stream, u8 *val)
+{
+}
+
+static void null_read_requested(struct stream_data *stream, u8 *val)
+{
+}
+
+static void null_remove(struct stream_data *stream, u8 reg)
+{
+}
+
+static struct handler_ops null_handler_ops = {
+	.handle_write = null_handle_write,
+	.read_processed = null_read_processed,
+	.read_requested = null_read_requested,
+	.remove = null_remove,
 };
 
 static int i2c_slave_stream_cb(struct i2c_client *client,
@@ -481,7 +524,8 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 	struct stream_data *stream;
 	struct stream_end *sx;
 	int ret;
-
+	int i;
+	
 	stream = devm_kzalloc(&client->dev, sizeof(struct stream_data), GFP_KERNEL);
 	if (!stream)
 		return -ENOMEM;
@@ -493,8 +537,11 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 		return -ENOMEM;
 	}
 
+	for (i = 0; i < REGS_PER_TARGET; i++)
+		stream->handler[i] = &null_handler_ops;
+	
 	stream->handler[4] = &sx_handler_ops;
-	stream->sx[4] = sx;
+	stream->handler_data[4] = sx;
 	
 	sx->dev.devt = MKDEV(i2c_slave_stream_major, 0);
 	sx->dev.class = i2c_slave_stream_class;
@@ -545,18 +592,15 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 static int i2c_slave_stream_remove(struct i2c_client *client)
 {
 	struct stream_data *stream = i2c_get_clientdata(client);
-	struct stream_end *sx;
+	struct handler_ops *handler;
 	int i;
 	
 	printk(KERN_EMERG "%s: stream=%px\n", __func__, stream);
 	i2c_slave_unregister(stream->client);
-	//cdev_device_del(&sx->cdev, &sx->dev);
 	for (i = 0; i < REGS_PER_TARGET; i++) {
-		sx = stream->sx[i];
-		if (sx) {
-			cdev_del(&sx->cdev);
-			device_unregister(&sx->dev);
-			stream->sx[i] = NULL;
+		handler = stream->handler[i];
+		if (handler) {
+			handler->remove(stream, i);
 		}
 	}
 	
