@@ -493,7 +493,7 @@ static struct file_operations fops =
 	.release = i2c_responder_stream_release,
 };
 
-static int sx_register_chrdev(struct stream_data *stream, u8 reg)
+static int sx_register_chrdev(struct stream_data *stream, const char *name, u8 reg)
 {
 	struct stream_fdx *sx;
 	int ret;
@@ -506,7 +506,7 @@ static int sx_register_chrdev(struct stream_data *stream, u8 reg)
 	sx->dev.devt = MKDEV(i2c_responder_stream_major, i2c_responder_stream_minor);
 	sx->dev.class = i2c_responder_stream_class;
 	sx->dev.parent = &stream->client->dev;
-	dev_set_name(&sx->dev, DEVICE_NAME);
+	dev_set_name(&sx->dev, name);
 	ret = device_register(&sx->dev);
 	if (ret) {
 		return ret;
@@ -557,7 +557,7 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 	for (i = 0; i < REGS_PER_RESPONDER; i++)
 		stream->handler[i] = &null_handler_ops;
 	
-	ret = sx_register_chrdev(stream, 4);
+	ret = sx_register_chrdev(stream, DEVICE_NAME, 4);
 	
 	i2c_set_clientdata(client, stream);
 
