@@ -23,7 +23,6 @@
 #include <linux/uaccess.h>
 #include <linux/crc32.h>
 
-
 #define REGS_PER_TARGET (16)
 #define MAX_TARGET_REGS (16)
 #define TARGET_REG(t) ((t) & (MAX_TARGET_REGS-1))
@@ -55,7 +54,7 @@ struct stream_buffer {
 	char buf[I2C_SLAVE_STREAM_BUFSIZE];
 };
 
-struct stream_end {	
+struct stream_fdx {	
 	struct device dev;
 	struct cdev cdev;
 	u8 ctl_write;
@@ -81,7 +80,7 @@ struct handler_ops {
 static int i2c_slave_stream_major;
 static struct class *i2c_slave_stream_class;
 
-static void set_data_reg(struct stream_end *sx, u8 *val)
+static void set_data_reg(struct stream_fdx *sx, u8 *val)
 {
 	unsigned long head, tail;
 
@@ -100,7 +99,7 @@ static void set_data_reg(struct stream_end *sx, u8 *val)
 	spin_unlock(&sx->from_host.lock);
 }
 
-static void set_ctl_reg(struct stream_end *sx, u8 *val)
+static void set_ctl_reg(struct stream_fdx *sx, u8 *val)
 {
 	sx->ctl_write = *val;
 	switch (*val) {
@@ -149,19 +148,7 @@ static void set_ctl_reg(struct stream_end *sx, u8 *val)
 	}
 }
 
-/*
- * get_reg32 - Read 8 bits of a 32 bit register
- *
- * This is a helper routine to return a byte of a 32 bit
- * register, little endian.
- */
-
-static u8 get_reg32(u32 reg, int offset)
-{
-	return (reg >> (offset << 3)) & 0xff;
-}
-
-static u8 get_cnt_reg(struct stream_data *stream, struct stream_end *sx)
+static u8 get_cnt_reg(struct stream_data *stream, struct stream_fdx *sx)
 {
 	unsigned long head, tail, cnt;
 	
@@ -179,7 +166,7 @@ static u8 get_cnt_reg(struct stream_data *stream, struct stream_end *sx)
 	return cnt;
 }
 
-static u8 get_data_reg(struct stream_end *sx)
+static u8 get_data_reg(struct stream_fdx *sx)
 {
 	unsigned long head, tail, cnt;
 	u8 ch;
@@ -197,19 +184,14 @@ static u8 get_data_reg(struct stream_end *sx)
 	return ch;
 }
 
-static u8 get_crc_reg(struct stream_data *stream, struct stream_end *sx, u8 base_reg)
+static u8 get_reg32(u32 crc32, u8 offset)
 {
-	return get_reg32(~sx->from_host.crc32, TARGET_REG(stream->reg) - base_reg);
-}
-
-static u8 get_ctl_reg(struct stream_end *sx)
-{
-	return sx->ctl_write;
+	return crc32 >> (offset << 3);
 }
 
 static int sx_handle_write(struct stream_data *stream, u8 *val)
 {
-	struct stream_end *sx = stream->handler_data[stream->reg >> 4];
+	struct stream_fdx *sx = stream->handler_data[stream->reg >> 4];
 	
 	if (stream->offset == 0)
 		return 0;	/* Nothing to do on address byte */
@@ -231,7 +213,7 @@ static int sx_handle_write(struct stream_data *stream, u8 *val)
 
 static void sx_read_processed(struct stream_data *stream, u8 *val)
 {
-	struct stream_end *sx = stream->handler_data[stream->reg >> 4];
+	struct stream_fdx *sx = stream->handler_data[stream->reg >> 4];
 	unsigned long head, tail;
 	u8 ch;
 
@@ -253,7 +235,7 @@ static void sx_read_processed(struct stream_data *stream, u8 *val)
 
 static void sx_read_requested(struct stream_data *stream, u8 *val)
 {
-	struct stream_end *sx = stream->handler_data[stream->reg >> 4];
+	struct stream_fdx *sx = stream->handler_data[stream->reg >> 4];
 
 	switch (TARGET_REG(stream->reg)) {
 	case STREAM_CNT_REG:
@@ -268,18 +250,20 @@ static void sx_read_requested(struct stream_data *stream, u8 *val)
 	case STREAM_READ_CRC_REG1:
 	case STREAM_READ_CRC_REG2:
 	case STREAM_READ_CRC_REG3:
-		*val = get_crc_reg(stream, sx, STREAM_READ_CRC_REG0);
+		*val = get_reg32(~sx->to_host.crc32,
+				 TARGET_REG(stream->reg) - STREAM_READ_CRC_REG0);
 		break;
 
 	case STREAM_WRITE_CRC_REG0:
 	case STREAM_WRITE_CRC_REG1:
 	case STREAM_WRITE_CRC_REG2:
 	case STREAM_WRITE_CRC_REG3:
-		*val = get_crc_reg(stream, sx, STREAM_WRITE_CRC_REG0);
+		*val = get_reg32(~sx->from_host.crc32,
+				 TARGET_REG(stream->reg) - STREAM_WRITE_CRC_REG0);
 		break;
 
 	case STREAM_CTL_REG:
-		*val = get_ctl_reg(sx);
+		*val = sx->ctl_write;
 		break;
 			
 	default:
@@ -290,7 +274,7 @@ static void sx_read_requested(struct stream_data *stream, u8 *val)
 
 static void sx_remove(struct stream_data *stream, u8 reg)
 {
-	struct stream_end *sx = stream->handler_data[reg];
+	struct stream_fdx *sx = stream->handler_data[reg];
 
 	//cdev_device_del(&sx->cdev, &sx->dev);
 	cdev_del(&sx->cdev);
@@ -381,8 +365,8 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 
 static int i2c_slave_stream_open(struct inode *inode, struct file *filep)
 {
-	struct stream_end *sx = container_of(inode->i_cdev,
-					     struct stream_end, cdev);
+	struct stream_fdx *sx = container_of(inode->i_cdev,
+					     struct stream_fdx, cdev);
 	get_device(&sx->dev);
 	filep->private_data = sx;
 
@@ -391,7 +375,7 @@ static int i2c_slave_stream_open(struct inode *inode, struct file *filep)
 
 static ssize_t i2c_slave_stream_read(struct file *filep, char *buffer, size_t len, loff_t *offset)
 {
-	struct stream_end *sx = filep->private_data;
+	struct stream_fdx *sx = filep->private_data;
 	unsigned long head, tail;
 	int cnt;
 	size_t done = 0;
@@ -440,7 +424,7 @@ static ssize_t i2c_slave_stream_read(struct file *filep, char *buffer, size_t le
 
 static ssize_t i2c_slave_stream_write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
 {
-	struct stream_end *sx = filep->private_data;
+	struct stream_fdx *sx = filep->private_data;
 	unsigned long head, tail;
 	int cnt;
 	size_t done = 0;
@@ -493,7 +477,7 @@ static ssize_t i2c_slave_stream_write(struct file *filep, const char *buffer, si
 
 static int i2c_slave_stream_release(struct inode *inodep, struct file *filep)
 {
-	struct stream_end *sx = filep->private_data;
+	struct stream_fdx *sx = filep->private_data;
 
 	put_device(&sx->dev);
 	return 0;
@@ -511,10 +495,10 @@ static struct file_operations fops =
 
 static int sx_register_chrdev(struct stream_data *stream, u8 reg)
 {
-	struct stream_end *sx;
+	struct stream_fdx *sx;
 	int ret;
 	
-	sx = devm_kzalloc(&stream->client->dev, sizeof(struct stream_end),
+	sx = devm_kzalloc(&stream->client->dev, sizeof(struct stream_fdx),
 			  GFP_KERNEL);
 	if (!sx)
 		return -ENOMEM;
