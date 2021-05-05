@@ -1,1 +1,1 @@
-obj-m += i2c-target-stream.o
+obj-m += responder.o
