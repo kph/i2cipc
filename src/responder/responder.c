@@ -277,8 +277,11 @@ static void sx_remove(struct stream_data *stream, u8 reg)
 	struct stream_fdx *sx = stream->handler_data[reg];
 
 	//cdev_device_del(&sx->cdev, &sx->dev);
+	printk("calling cdev_del\n");
 	cdev_del(&sx->cdev);
-	device_unregister(&sx->dev);
+	printk("calling device_unregister sx=%px &sx->dev=%px\n", sx, &sx->dev);
+	put_device(&sx->dev);
+	printk("clearing handler_data[%d]\n", reg);
 	stream->handler_data[reg] = NULL;
 }
 
@@ -579,8 +582,10 @@ static int i2c_slave_stream_remove(struct i2c_client *client)
 	
 	printk(KERN_EMERG "%s: stream=%px\n", __func__, stream);
 	i2c_slave_unregister(stream->client);
-	for (i = 0; i < REGS_PER_RESPONDER; i++)
+	for (i = 0; i < REGS_PER_RESPONDER; i++) {
+		printk("%s: removing %d %px\n", __func__, i, stream->handler[i]);
 		stream->handler[i]->remove(stream, i);
+	}
 	
 	return 0;
 }
