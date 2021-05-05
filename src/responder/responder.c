@@ -277,12 +277,8 @@ static void sx_remove(struct stream_data *stream, u8 reg)
 {
 	struct stream_fdx *sx = stream->handler_data[reg];
 
-	printk("calling cdev_device_del\n");
 	cdev_device_del(&sx->cdev, &sx->dev);
-	//cdev_del(&sx->cdev);
-	printk("calling put_device sx=%px &sx->dev=%px\n", sx, &sx->dev);
 	put_device(&sx->dev);
-	printk("clearing handler_data[%d]\n", reg);
 	stream->handler_data[reg] = NULL;
 }
 
@@ -495,7 +491,6 @@ static void sx_stream_release(struct device *dev)
 {
 	struct stream_fdx *sx = container_of(dev, struct stream_fdx, dev);
 
-	printk("%s: freeing sx %px\n", __func__, sx);
 	kfree(sx);
 }
 
@@ -551,7 +546,6 @@ static void i2c_slave_stream_release(struct device *dev)
 {
 	struct stream_data *stream = container_of(dev, struct stream_data, dev);
 
-	printk("%s: freeing stream %px\n", __func__, stream);
 	kfree(stream);
 }
 
@@ -605,10 +599,8 @@ static int i2c_slave_stream_remove(struct i2c_client *client)
 	struct stream_data *stream = i2c_get_clientdata(client);
 	int i;
 	
-	printk(KERN_EMERG "%s: stream=%px\n", __func__, stream);
 	i2c_slave_unregister(stream->client);
 	for (i = 0; i < REGS_PER_RESPONDER; i++) {
-		printk("%s: removing %d %px\n", __func__, i, stream->handler[i]);
 		stream->handler[i]->remove(stream, i);
 	}
 	device_unregister(&stream->dev);
@@ -665,11 +657,8 @@ static int __init i2c_slave_stream_init(void)
 
 static void __exit i2c_slave_stream_exit(void)
 {
-	printk("%s: calling i2c_del_driver\n", __func__);
 	i2c_del_driver(&i2c_responder_stream_driver);
-	printk("%s: calling class_destroy\n", __func__);
 	class_destroy(i2c_responder_stream_class);
-	printk("%s: calling unregister_chrdev\n", __func__);
 	unregister_chrdev(i2c_responder_stream_major, DEVICE_NAME);
 }
 
