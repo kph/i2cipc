@@ -636,23 +636,24 @@ static int __init i2c_slave_stream_init(void)
 {
 	int err;
 
-	err = i2c_register_driver(THIS_MODULE, &i2c_responder_stream_driver);
-	if (err < 0)
-		return err;
-
 	i2c_responder_stream_major = register_chrdev(0, DEVICE_NAME, &fops);
 	if (i2c_responder_stream_major < 0) {
-		i2c_del_driver(&i2c_responder_stream_driver);
 		return i2c_responder_stream_major;
 	}
 
 	i2c_responder_stream_class = class_create(THIS_MODULE, CLASS_NAME);
 	if (IS_ERR(i2c_responder_stream_class)) {
-		i2c_del_driver(&i2c_responder_stream_driver);
 		unregister_chrdev(i2c_responder_stream_major, DEVICE_NAME);
 		return PTR_ERR(i2c_responder_stream_class);
 	}
 
+	err = i2c_register_driver(THIS_MODULE, &i2c_responder_stream_driver);
+	if (err < 0) {
+		unregister_chrdev(i2c_responder_stream_major, DEVICE_NAME);
+		class_destroy(i2c_responder_stream_class);
+		return err;
+	}
+	
 	return 0;
 }
 
