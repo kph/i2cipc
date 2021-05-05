@@ -291,6 +291,7 @@ static struct handler_ops sx_handler_ops = {
 
 static int null_handle_write(struct stream_data *stream, u8 *val)
 {
+	*val = 0xff;
 	return -ENOENT;
 }
 
