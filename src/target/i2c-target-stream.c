@@ -26,23 +26,24 @@
 
 #define REGS_PER_TARGET (16)
 #define MAX_TARGET_REGS (16)
+#define TARGET_REG(t) ((t) & (MAX_TARGET_REGS-1))
 
 #define  DEVICE_NAME "i2c-slave-stream-0" /* fixme per unit */
 #define  CLASS_NAME  "i2c-slave-stream"
 
 #define I2C_SLAVE_STREAM_BUFSIZE 0x100 /* Must be a power of 2 */
 
-#define STREAM_DATA_REG (0x40)
-#define STREAM_CNT_REG (0x41)
-#define STREAM_READ_CRC_REG0 (0x42)
-#define STREAM_READ_CRC_REG1 (0x43)
-#define STREAM_READ_CRC_REG2 (0x44)
-#define STREAM_READ_CRC_REG3 (0x45)
-#define STREAM_WRITE_CRC_REG0 (0x46)
-#define STREAM_WRITE_CRC_REG1 (0x47)
-#define STREAM_WRITE_CRC_REG2 (0x48)
-#define STREAM_WRITE_CRC_REG3 (0x49)
-#define STREAM_CTL_REG (0x4a)
+#define STREAM_DATA_REG (0x0)
+#define STREAM_CNT_REG (0x1)
+#define STREAM_READ_CRC_REG0 (0x2)
+#define STREAM_READ_CRC_REG1 (0x3)
+#define STREAM_READ_CRC_REG2 (0x4)
+#define STREAM_READ_CRC_REG3 (0x5)
+#define STREAM_WRITE_CRC_REG0 (0x6)
+#define STREAM_WRITE_CRC_REG1 (0x7)
+#define STREAM_WRITE_CRC_REG2 (0x8)
+#define STREAM_WRITE_CRC_REG3 (0x9)
+#define STREAM_CTL_REG (0xa)
 
 struct stream_buffer {
 	wait_queue_head_t wait;
@@ -68,25 +69,6 @@ struct stream_data {
 	u8 reg;
 	struct stream_end *sx[REGS_PER_TARGET];
 };
-
-#ifdef NOTYET
-struct target_stream_ops tops =
-{
-	u8 (*read_cnt_reg)(struct stream_data *, u8); /* Read count register */
-	u8 (*read_data_reg)(struct stream_data *, u8); /* Read data register */
-	u8 (*read_read_crc0)(struct stream_data *, u8); /* Read 'read CRC' byte 0 */
-	u8 (*read_read_crc1)(struct stream_data *, u8); /* Read 'read CRC' byte 1 */
-	u8 (*read_read_crc2)(struct stream_data *, u8); /* Read 'read CRC' byte 2 */
-	u8 (*read_read_crc3)(struct stream_data *, u8); /* Read 'read CRC' byte 3 */
-	u8 (*read_write_crc0)(struct stream_data *, u8); /* Read 'write CRC' byte 0 */
-	u8 (*read_write_crc1)(struct stream_data *, u8); /* Read 'write CRC' byte 1 */
-	u8 (*read_write_crc2)(struct stream_data *, u8); /* Read 'write CRC' byte 2 */
-	u8 (*read_write_crc3)(struct stream_data *, u8); /* Read 'write CRC' byte 3 */
-	u8 (*read_write_ctl)(struct stream_data *, u8); /* Read write control */
-	
-	
-};
-#endif
 
 static int i2c_slave_stream_major;
 static struct class *i2c_slave_stream_class;
@@ -204,7 +186,7 @@ static u8 get_data_reg(struct stream_end *sx) {
 }
 
 static u8 get_crc_reg(struct stream_data *stream, struct stream_end *sx, u8 base_reg) {
-	return get_reg32(~sx->from_host.crc32, stream->reg - base_reg);
+	return get_reg32(~sx->from_host.crc32, TARGET_REG(stream->reg) - base_reg);
 }
 
 static u8 get_ctl_reg(struct stream_end *sx) {
@@ -212,7 +194,7 @@ static u8 get_ctl_reg(struct stream_end *sx) {
 }
 
 static int handle_write(struct stream_data *stream, struct stream_end *sx, u8 *val) {
-	switch (stream->reg) {
+	switch (TARGET_REG(stream->reg)) {
 	case STREAM_DATA_REG:
 		set_data_reg(sx, val);
 		break;
@@ -251,7 +233,7 @@ static void read_processed(struct stream_end *sx, u8 *val)
 static void read_requested(struct stream_data *stream, struct stream_end *sx,
 			   u8 *val)
 {
-	switch (stream->reg) {
+	switch (TARGET_REG(stream->reg)) {
 	case STREAM_CNT_REG:
 		*val = get_cnt_reg(stream, sx);
 		break;
@@ -315,7 +297,7 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 	case I2C_SLAVE_READ_PROCESSED:
 		stream->offset++;
 		
-		if (stream->reg != STREAM_DATA_REG) {
+		if (TARGET_REG(stream->reg) != STREAM_DATA_REG) {
 			*val = 0;
 			break;
 		}
