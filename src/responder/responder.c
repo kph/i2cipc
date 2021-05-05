@@ -63,6 +63,7 @@ struct stream_fdx {
 };
 
 struct stream_data {
+	struct device dev;
 	struct i2c_client *client;
 	u8 offset;
 	u8 reg;
@@ -276,11 +277,11 @@ static void sx_remove(struct stream_data *stream, u8 reg)
 {
 	struct stream_fdx *sx = stream->handler_data[reg];
 
-	//cdev_device_del(&sx->cdev, &sx->dev);
-	printk("calling cdev_del\n");
-	cdev_del(&sx->cdev);
-	printk("calling device_unregister sx=%px &sx->dev=%px\n", sx, &sx->dev);
-	put_device(&sx->dev);
+	cdev_device_del(&sx->cdev, &sx->dev);
+	//printk("calling cdev_del\n");
+	//cdev_del(&sx->cdev);
+	//printk("calling device_unregister sx=%px &sx->dev=%px\n", sx, &sx->dev);
+	//put_device(&sx->dev);
 	printk("clearing handler_data[%d]\n", reg);
 	stream->handler_data[reg] = NULL;
 }
@@ -508,21 +509,19 @@ static int sx_register_chrdev(struct stream_data *stream, const char *name, u8 r
 
 	sx->dev.devt = MKDEV(i2c_responder_stream_major, i2c_responder_stream_minor);
 	sx->dev.class = i2c_responder_stream_class;
-	sx->dev.parent = &stream->client->dev;
+	sx->dev.parent = &stream->dev;
 	dev_set_name(&sx->dev, name);
-	ret = device_register(&sx->dev);
-	if (ret) {
-		return ret;
-	}
+	device_initialize(&sx->dev);
 	cdev_init(&sx->cdev, &fops);
-	//ret = cdev_device_add(&sx->cdev, &sx->dev);
-	ret = cdev_add(&sx->cdev, sx->dev.devt, 1);
+	sx->cdev.owner = fops.owner;
+	
+	ret = cdev_device_add(&sx->cdev, &sx->dev);
+	//ret = cdev_add(&sx->cdev, sx->dev.devt, 1);
 	if (ret) {
 		put_device(&sx->dev);
 		return ret;
 	}
 	i2c_responder_stream_minor++;
-	sx->cdev.owner = fops.owner;
 	
 	init_waitqueue_head(&sx->from_host.wait);
 	init_waitqueue_head(&sx->to_host.wait);
@@ -556,7 +555,14 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 		return -ENOMEM;
 
 	stream->client = client;
-
+	stream->dev.parent = &client->dev;
+	stream->dev.class = i2c_responder_stream_class;
+	dev_set_name(&stream->dev, DEVICE_NAME);
+	ret = device_register(&stream->dev);
+	if (ret) {
+		return ret;
+	}
+	
 	for (i = 0; i < REGS_PER_RESPONDER; i++)
 		stream->handler[i] = &null_handler_ops;
 	
@@ -586,6 +592,7 @@ static int i2c_slave_stream_remove(struct i2c_client *client)
 		printk("%s: removing %d %px\n", __func__, i, stream->handler[i]);
 		stream->handler[i]->remove(stream, i);
 	}
+	put_device(&stream->dev);
 	
 	return 0;
 }
