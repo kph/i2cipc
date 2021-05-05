@@ -348,12 +348,6 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 
 	case I2C_SLAVE_READ_REQUESTED:
 		stream->handler[stream->reg >> 4]->read_requested(stream, val);
-
-		/*
-		 * Do not increment offset here, because we don't know if
-		 * this byte will be actually used. Read Linux I2C slave docs
-		 * for details.
-		 */
 		break;
 
 	case I2C_SLAVE_STOP:
@@ -544,13 +538,20 @@ static int sx_register_chrdev(struct stream_data *stream, const char *name, u8 r
 	return 0;
 }
 
+static void i2c_slave_stream_release(struct device *dev)
+{
+	struct stream_data *stream = container_of(dev, struct stream_data, dev);
+
+	kfree(stream);
+}
+
 static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	struct stream_data *stream;
 	int ret;
 	int i;
 	
-	stream = devm_kzalloc(&client->dev, sizeof(struct stream_data), GFP_KERNEL);
+	stream = kzalloc(sizeof(struct stream_data), GFP_KERNEL);
 	if (!stream)
 		return -ENOMEM;
 
@@ -558,8 +559,10 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 	stream->dev.parent = &client->dev;
 	stream->dev.class = i2c_responder_stream_class;
 	dev_set_name(&stream->dev, DEVICE_NAME);
+	stream->dev.release = i2c_slave_stream_release;
 	ret = device_register(&stream->dev);
 	if (ret) {
+		kfree(stream);
 		return ret;
 	}
 	
@@ -575,6 +578,7 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 		for (i = 0; i < REGS_PER_RESPONDER; i++)
 			stream->handler[i]->remove(stream, i);
 
+		device_unregister(&stream->dev);
 		return ret;
 	}
 
@@ -592,7 +596,8 @@ static int i2c_slave_stream_remove(struct i2c_client *client)
 		printk("%s: removing %d %px\n", __func__, i, stream->handler[i]);
 		stream->handler[i]->remove(stream, i);
 	}
-	put_device(&stream->dev);
+	//put_device(&stream->dev);
+	device_unregister(&stream->dev);
 	
 	return 0;
 }
