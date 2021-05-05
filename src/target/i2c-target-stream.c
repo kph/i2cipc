@@ -67,7 +67,14 @@ struct stream_data {
 	struct i2c_client *client;
 	u8 offset;
 	u8 reg;
+	struct handler_ops *handler[REGS_PER_TARGET];
 	struct stream_end *sx[REGS_PER_TARGET];
+};
+
+struct handler_ops {
+	int (*handle_write)(struct stream_data *stream, u8 *val);
+	void (*read_processed)(struct stream_data *stream, u8 *val);
+	void (*read_requested)(struct stream_data *stream, u8 *val);
 };
 
 static int i2c_slave_stream_major;
@@ -193,7 +200,9 @@ static u8 get_ctl_reg(struct stream_end *sx) {
 	return sx->ctl_write;
 }
 
-static int handle_write(struct stream_data *stream, struct stream_end *sx, u8 *val) {
+static int sx_handle_write(struct stream_data *stream, u8 *val) {
+	struct stream_end *sx = stream->sx[stream->reg >> 4];
+	
 	switch (TARGET_REG(stream->reg)) {
 	case STREAM_DATA_REG:
 		set_data_reg(sx, val);
@@ -209,8 +218,9 @@ static int handle_write(struct stream_data *stream, struct stream_end *sx, u8 *v
 	return 0;
 }
 
-static void read_processed(struct stream_end *sx, u8 *val)
+static void sx_read_processed(struct stream_data *stream, u8 *val)
 {
+	struct stream_end *sx = stream->sx[stream->reg >> 4];
 	unsigned long head, tail;
 	u8 ch;
 
@@ -230,9 +240,10 @@ static void read_processed(struct stream_end *sx, u8 *val)
 	spin_unlock(&sx->to_host.lock);
 }
 
-static void read_requested(struct stream_data *stream, struct stream_end *sx,
-			   u8 *val)
+static void sx_read_requested(struct stream_data *stream, u8 *val)
 {
+	struct stream_end *sx = stream->sx[stream->reg >> 4];
+
 	switch (TARGET_REG(stream->reg)) {
 	case STREAM_CNT_REG:
 		*val = get_cnt_reg(stream, sx);
@@ -266,11 +277,17 @@ static void read_requested(struct stream_data *stream, struct stream_end *sx,
 	}
 }
 
+static struct handler_ops sx_handler_ops = {
+	.handle_write = sx_handle_write,
+	.read_processed = sx_read_processed,
+	.read_requested = sx_read_requested,
+};
+
 static int i2c_slave_stream_cb(struct i2c_client *client,
 			       enum i2c_slave_event event, u8 *val)
 {
 	struct stream_data *stream = i2c_get_clientdata(client);
-	struct stream_end *sx;
+	struct handler_ops *handler;
 	int ret = 0;
 	
 	switch (event) {
@@ -281,13 +298,13 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 	case I2C_SLAVE_WRITE_RECEIVED:
 		if (stream->offset == 0) {	/* Register is a single byte */
 			stream->reg = *val;
-			sx = stream->sx[stream->reg >> 4];
-			if (!sx)
+			handler = stream->handler[stream->reg >> 4];
+			if (!handler)
 				ret = -ENOENT;
 		} else {
-			sx = stream->sx[stream->reg >> 4];
-			if (sx)
-				ret =  handle_write(stream, sx, val);
+			handler = stream->handler[stream->reg >> 4];
+			if (handler)
+				ret =  handler->handle_write(stream, val);
 			else
 				ret = -ENOENT;
 		}
@@ -301,15 +318,15 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 			*val = 0;
 			break;
 		}
-		sx = stream->sx[stream->reg >> 4];
-		if (sx)
-			read_processed(sx, val);
+		handler = stream->handler[stream->reg >> 4];
+		if (handler)
+			handler->read_processed(stream, val);
 		break;
 
 	case I2C_SLAVE_READ_REQUESTED:
-		sx = stream->sx[stream->reg >> 4];
-		if (sx)
-			read_requested(stream, sx, val);
+		handler = stream->handler[stream->reg >> 4];
+		if (handler)
+			handler->read_requested(stream, val);
 
 		/*
 		 * Do not increment offset here, because we don't know if
@@ -475,6 +492,8 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 	if (!sx) {
 		return -ENOMEM;
 	}
+
+	stream->handler[4] = &sx_handler_ops;
 	stream->sx[4] = sx;
 	
 	sx->dev.devt = MKDEV(i2c_slave_stream_major, 0);
