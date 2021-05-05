@@ -77,7 +77,7 @@ struct handler_ops {
 	void (*remove)(struct stream_data *stream, u8 base);
 };
 
-static int i2c_responder_stream_major;
+static int i2c_responder_stream_major, i2c_responder_stream_minor;
 static struct class *i2c_responder_stream_class;
 
 static void set_data_reg(struct stream_fdx *sx, u8 *val)
@@ -503,7 +503,7 @@ static int sx_register_chrdev(struct stream_data *stream, u8 reg)
 	if (!sx)
 		return -ENOMEM;
 
-	sx->dev.devt = MKDEV(i2c_responder_stream_major, 0);
+	sx->dev.devt = MKDEV(i2c_responder_stream_major, i2c_responder_stream_minor);
 	sx->dev.class = i2c_responder_stream_class;
 	sx->dev.parent = &stream->client->dev;
 	dev_set_name(&sx->dev, DEVICE_NAME);
@@ -518,6 +518,7 @@ static int sx_register_chrdev(struct stream_data *stream, u8 reg)
 		put_device(&sx->dev);
 		return ret;
 	}
+	i2c_responder_stream_minor++;
 	sx->cdev.owner = fops.owner;
 	
 	init_waitqueue_head(&sx->from_host.wait);
