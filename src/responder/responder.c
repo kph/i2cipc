@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * I2C slave mode stream driver
+ * I2C slave mode responder
  *
  * Copyright (C) 2020-2021 by Kevin Paul Herbert, Platina Systems, Inc.
  *
@@ -30,7 +30,7 @@
 #define  DEVICE_NAME "i2c-slave-stream-0" /* fixme per unit */
 #define  CLASS_NAME  "i2c-slave-stream"
 
-#define I2C_SLAVE_STREAM_BUFSIZE 0x100 /* Must be a power of 2 */
+#define I2C_STREAM_BUFSIZE 0x100 /* Must be a power of 2 */
 
 #define STREAM_DATA_REG (0x0)
 #define STREAM_CNT_REG (0x1)
@@ -51,7 +51,7 @@ struct stream_buffer {
 	struct circ_buf buffer;
 	int frame;
 	u32 crc32;
-	char buf[I2C_SLAVE_STREAM_BUFSIZE];
+	char buf[I2C_STREAM_BUFSIZE];
 };
 
 struct stream_fdx {	
@@ -87,12 +87,12 @@ static void set_data_reg(struct stream_fdx *sx, u8 *val)
 	spin_lock(&sx->from_host.lock);
 	head = sx->from_host.buffer.head;
 	tail = READ_ONCE(sx->from_host.buffer.tail);
-	if (CIRC_SPACE(head, tail, I2C_SLAVE_STREAM_BUFSIZE) >= 1) {
+	if (CIRC_SPACE(head, tail, I2C_STREAM_BUFSIZE) >= 1) {
 		sx->from_host.buffer.buf[head] = *val;
 		sx->from_host.crc32 = crc32_le(
 			sx->from_host.crc32, val, 1);
 		sx->from_host.buffer.head =
-			(head + 1) & (I2C_SLAVE_STREAM_BUFSIZE - 1);
+			(head + 1) & (I2C_STREAM_BUFSIZE - 1);
 	} else {
 		sx->overrun++;
 	}
@@ -110,7 +110,7 @@ static void set_ctl_reg(struct stream_fdx *sx, u8 *val)
 				  sx->to_host.buffer.tail);
 		if (CIRC_CNT(sx->to_host.buffer.head,
 			     sx->to_host.frame,
-			     I2C_SLAVE_STREAM_BUFSIZE) == 0) {
+			     I2C_STREAM_BUFSIZE) == 0) {
 			wake_up(&sx->to_host.wait);
 		}
 		spin_unlock(&sx->to_host.lock);
@@ -131,7 +131,7 @@ static void set_ctl_reg(struct stream_fdx *sx, u8 *val)
 				  sx->from_host.buffer.head);
 		if (CIRC_CNT(sx->from_host.frame,
 			     sx->from_host.buffer.tail,
-			     I2C_SLAVE_STREAM_BUFSIZE) > 0) {
+			     I2C_STREAM_BUFSIZE) > 0) {
 			wake_up(&sx->from_host.wait);
 		}
 		spin_unlock(&sx->from_host.lock);
@@ -155,7 +155,7 @@ static u8 get_cnt_reg(struct stream_data *stream, struct stream_fdx *sx)
 	spin_lock(&sx->to_host.lock);
 	head = smp_load_acquire(&sx->to_host.buffer.head);
 	tail = sx->to_host.buffer.tail;
-	cnt = CIRC_CNT(head, tail, I2C_SLAVE_STREAM_BUFSIZE);
+	cnt = CIRC_CNT(head, tail, I2C_STREAM_BUFSIZE);
 	if (cnt > 255) {
 		cnt = 255;
 	}
@@ -174,7 +174,7 @@ static u8 get_data_reg(struct stream_fdx *sx)
 	spin_lock(&sx->to_host.lock);
 	head = smp_load_acquire(&sx->to_host.buffer.head);
 	tail = sx->to_host.buffer.tail;
-	cnt = CIRC_CNT(head, tail, I2C_SLAVE_STREAM_BUFSIZE);
+	cnt = CIRC_CNT(head, tail, I2C_STREAM_BUFSIZE);
 
 	ch = 0;
 	if (cnt >= 1) {
@@ -222,12 +222,12 @@ static void sx_read_processed(struct stream_data *stream, u8 *val)
 	head = smp_load_acquire(&sx->to_host.buffer.head);
 	tail = sx->to_host.buffer.tail;
 
-	if (CIRC_CNT(head, tail, I2C_SLAVE_STREAM_BUFSIZE) >= 1) {
+	if (CIRC_CNT(head, tail, I2C_STREAM_BUFSIZE) >= 1) {
 		ch = sx->to_host.buffer.buf[tail];
 		sx->to_host.crc32 = crc32_le(sx->to_host.crc32,
 						    &ch, 1);
 		sx->to_host.buffer.tail =
-			(tail + 1) & (I2C_SLAVE_STREAM_BUFSIZE - 1);
+			(tail + 1) & (I2C_STREAM_BUFSIZE - 1);
 	}
 	*val = sx->to_host.buffer.buf[tail];	
 	spin_unlock(&sx->to_host.lock);
@@ -389,7 +389,7 @@ static ssize_t i2c_slave_stream_read(struct file *filep, char *buffer, size_t le
 		head = smp_load_acquire(&sx->from_host.frame);
 		tail = sx->from_host.buffer.tail;
 
-		cnt = CIRC_CNT_TO_END(head, tail, I2C_SLAVE_STREAM_BUFSIZE);
+		cnt = CIRC_CNT_TO_END(head, tail, I2C_STREAM_BUFSIZE);
 		spin_unlock_irq(&sx->from_host.lock);
 		
 		if (cnt == 0) {
@@ -403,7 +403,7 @@ static ssize_t i2c_slave_stream_read(struct file *filep, char *buffer, size_t le
 						     (CIRC_CNT(
 							     smp_load_acquire(&sx->from_host.frame),
 							     sx->from_host.buffer.tail,
-							     I2C_SLAVE_STREAM_BUFSIZE) > 0)))
+							     I2C_STREAM_BUFSIZE) > 0)))
 				return -ERESTARTSYS;
 		} else {
 			size_t todo = min(len - done, (size_t)cnt);
@@ -415,7 +415,7 @@ static ssize_t i2c_slave_stream_read(struct file *filep, char *buffer, size_t le
 			}
 			done += todo;
 			smp_store_release(&sx->from_host.buffer.tail,
-					  (tail + todo) & (I2C_SLAVE_STREAM_BUFSIZE - 1));
+					  (tail + todo) & (I2C_STREAM_BUFSIZE - 1));
 			up(&sx->from_host.sem);
 		}
 	}
@@ -438,7 +438,7 @@ static ssize_t i2c_slave_stream_write(struct file *filep, const char *buffer, si
 		head = sx->to_host.buffer.head;
 		tail = READ_ONCE(sx->to_host.frame);
 
-		cnt = CIRC_SPACE_TO_END(head, tail, I2C_SLAVE_STREAM_BUFSIZE);
+		cnt = CIRC_SPACE_TO_END(head, tail, I2C_STREAM_BUFSIZE);
 		spin_unlock_irq(&sx->to_host.lock);
 
 		if (cnt == 0) {
@@ -453,7 +453,7 @@ static ssize_t i2c_slave_stream_write(struct file *filep, const char *buffer, si
 						     (CIRC_SPACE(
 							     smp_load_acquire(&sx->to_host.buffer.head),
 							     sx->to_host.frame,
-							     I2C_SLAVE_STREAM_BUFSIZE) > 0)))
+							     I2C_STREAM_BUFSIZE) > 0)))
 				return -ERESTARTSYS;
 		} else {
 			size_t todo = min(len - done, (size_t)cnt);
@@ -466,7 +466,7 @@ static ssize_t i2c_slave_stream_write(struct file *filep, const char *buffer, si
 			}
 			done += todo;
 			smp_store_release(&sx->to_host.buffer.head,
-					  (head + todo) & (I2C_SLAVE_STREAM_BUFSIZE - 1));
+					  (head + todo) & (I2C_STREAM_BUFSIZE - 1));
 			up(&sx->to_host.sem);
 		}
 			
