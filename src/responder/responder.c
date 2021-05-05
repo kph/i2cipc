@@ -277,8 +277,8 @@ static void sx_remove(struct stream_data *stream, u8 reg)
 {
 	struct stream_fdx *sx = stream->handler_data[reg];
 
+	printk("calling cdev_device_del\n");
 	cdev_device_del(&sx->cdev, &sx->dev);
-	//printk("calling cdev_del\n");
 	//cdev_del(&sx->cdev);
 	printk("calling put_device sx=%px &sx->dev=%px\n", sx, &sx->dev);
 	put_device(&sx->dev);
@@ -560,19 +560,19 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 	int i;
 	
 	stream = kzalloc(sizeof(struct stream_data), GFP_KERNEL);
-	if (!stream)
-		return -ENOMEM;
+	if (!stream) {
+		ret = -ENOMEM;
+		goto out_err;
+	}
 
 	stream->client = client;
 	stream->dev.parent = &client->dev;
-	stream->dev.class = i2c_responder_stream_class;
+	//stream->dev.class = i2c_responder_stream_class;
 	dev_set_name(&stream->dev, DEVICE_NAME);
 	stream->dev.release = i2c_slave_stream_release;
 	ret = device_register(&stream->dev);
-	if (ret) {
-		kfree(stream);
-		return ret;
-	}
+	if (ret)
+		goto out_kfree_stream;
 	
 	for (i = 0; i < REGS_PER_RESPONDER; i++)
 		stream->handler[i] = &null_handler_ops;
@@ -582,15 +582,20 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 	i2c_set_clientdata(client, stream);
 
 	ret = i2c_slave_register(client, i2c_slave_stream_cb);
-	if (ret) {
-		for (i = 0; i < REGS_PER_RESPONDER; i++)
-			stream->handler[i]->remove(stream, i);
-
-		device_unregister(&stream->dev);
-		return ret;
-	}
+	if (ret)
+		goto out_responder_unregister;
 
 	return 0;
+
+out_responder_unregister:
+	for (i = 0; i < REGS_PER_RESPONDER; i++)
+		stream->handler[i]->remove(stream, i);
+
+	device_unregister(&stream->dev);
+out_kfree_stream:
+	kfree(stream);
+out_err:
+	return ret;
 };
 
 static int i2c_slave_stream_remove(struct i2c_client *client)
@@ -604,8 +609,8 @@ static int i2c_slave_stream_remove(struct i2c_client *client)
 		printk("%s: removing %d %px\n", __func__, i, stream->handler[i]);
 		stream->handler[i]->remove(stream, i);
 	}
-	//put_device(&stream->dev);
 	device_unregister(&stream->dev);
+	//put_device(&stream->dev);
 	
 	return 0;
 }
@@ -659,9 +664,12 @@ static int __init i2c_slave_stream_init(void)
 
 static void __exit i2c_slave_stream_exit(void)
 {
-	class_destroy(i2c_responder_stream_class);
-	unregister_chrdev(i2c_responder_stream_major, DEVICE_NAME);
+	printk("%s: calling i2c_del_driver\n", __func__);
 	i2c_del_driver(&i2c_responder_stream_driver);
+	printk("%s: calling class_destroy\n", __func__);
+	class_destroy(i2c_responder_stream_class);
+	printk("%s: calling unregister_chrdev\n", __func__);
+	unregister_chrdev(i2c_responder_stream_major, DEVICE_NAME);
 }
 
 module_init(i2c_slave_stream_init);
