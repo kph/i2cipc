@@ -495,6 +495,7 @@ static void sx_stream_release(struct device *dev)
 {
 	struct stream_fdx *sx = container_of(dev, struct stream_fdx, dev);
 
+	printk("%s: freeing sx %px\n", __func__, sx);
 	kfree(sx);
 }
 
@@ -550,6 +551,7 @@ static void i2c_slave_stream_release(struct device *dev)
 {
 	struct stream_data *stream = container_of(dev, struct stream_data, dev);
 
+	printk("%s: freeing stream %px\n", __func__, stream);
 	kfree(stream);
 }
 
@@ -610,7 +612,6 @@ static int i2c_slave_stream_remove(struct i2c_client *client)
 		stream->handler[i]->remove(stream, i);
 	}
 	device_unregister(&stream->dev);
-	//put_device(&stream->dev);
 	
 	return 0;
 }
