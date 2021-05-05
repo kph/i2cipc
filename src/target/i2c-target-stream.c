@@ -51,6 +51,8 @@ struct stream_buffer {
 };
 
 struct stream_end {	
+	struct device dev;
+	struct cdev cdev;
 	u8 ctl_write;
 	u32 overrun;
 	struct stream_buffer from_host, to_host;
@@ -58,8 +60,6 @@ struct stream_end {
 
 struct stream_data {
 	struct i2c_client *client;
-	struct device dev;
-	struct cdev cdev;
 	u8 offset;
 	u8 reg;
 	struct stream_end sx;
@@ -334,18 +334,17 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 
 static int i2c_slave_stream_open(struct inode *inode, struct file *filep)
 {
-	struct stream_data *stream = container_of(inode->i_cdev,
-						  struct stream_data, cdev);
-	get_device(&stream->dev);
-	filep->private_data = stream;
+	struct stream_end *sx = container_of(inode->i_cdev,
+					     struct stream_end, cdev);
+	get_device(&sx->dev);
+	filep->private_data = sx;
 
 	return 0;
 }
 
 static ssize_t i2c_slave_stream_read(struct file *filep, char *buffer, size_t len, loff_t *offset)
 {
-	struct stream_data *stream = filep->private_data;
-	struct stream_end *sx = &stream->sx;
+	struct stream_end *sx = filep->private_data;
 	unsigned long head, tail;
 	int cnt;
 	size_t done = 0;
@@ -394,8 +393,7 @@ static ssize_t i2c_slave_stream_read(struct file *filep, char *buffer, size_t le
 
 static ssize_t i2c_slave_stream_write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
 {
-	struct stream_data *stream = filep->private_data;
-	struct stream_end *sx = &stream->sx;
+	struct stream_end *sx = filep->private_data;
 	unsigned long head, tail;
 	int cnt;
 	size_t done = 0;
@@ -448,9 +446,9 @@ static ssize_t i2c_slave_stream_write(struct file *filep, const char *buffer, si
 
 static int i2c_slave_stream_release(struct inode *inodep, struct file *filep)
 {
-	struct stream_data *stream = filep->private_data;
+	struct stream_end *sx = filep->private_data;
 
-	put_device(&stream->dev);
+	put_device(&sx->dev);
 	return 0;
 }
 
@@ -464,15 +462,6 @@ static struct file_operations fops =
 	.release = i2c_slave_stream_release,
 };
 
-static void i2c_slave_stream_data_release(struct device *dev)
-{
-	struct stream_data *stream = container_of(dev, struct stream_data, dev);
-
-	printk(KERN_EMERG "in %s\n", __func__);
-
-	kfree(stream);
-}
-
 static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	struct stream_data *stream;
@@ -483,25 +472,26 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 	if (!stream)
 		return -ENOMEM;
 
-	stream->dev.devt = MKDEV(i2c_slave_stream_major, 0);
-	stream->dev.class = i2c_slave_stream_class;
-	stream->dev.release = i2c_slave_stream_data_release;
+	sx = &stream->sx;
+
+	sx->dev.devt = MKDEV(i2c_slave_stream_major, 0);
+	sx->dev.class = i2c_slave_stream_class;
 	stream->client = client;
-	stream->dev.parent = &client->dev;
-	dev_set_name(&stream->dev, DEVICE_NAME);
-	ret = device_register(&stream->dev);
+	sx->dev.parent = &client->dev;
+	dev_set_name(&sx->dev, DEVICE_NAME);
+	ret = device_register(&sx->dev);
 	if (ret) {
 		return ret;
 	}
-	cdev_init(&stream->cdev, &fops);
-	//ret = cdev_device_add(&stream->cdev, &stream->dev);
-	ret = cdev_add(&stream->cdev, stream->dev.devt, 1);
+	cdev_init(&sx->cdev, &fops);
+	//ret = cdev_device_add(&sx->cdev, &sx->dev);
+	ret = cdev_add(&sx->cdev, sx->dev.devt, 1);
 	if (ret) {
-		put_device(&stream->dev);
+		put_device(&sx->dev);
 		//kfree(stream);
 		return ret;
 	}
-	stream->cdev.owner = fops.owner;
+	sx->cdev.owner = fops.owner;
 	
 	init_waitqueue_head(&sx->from_host.wait);
 	init_waitqueue_head(&sx->to_host.wait);
@@ -512,7 +502,6 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 	spin_lock_init(&sx->from_host.lock);
 	spin_lock_init(&sx->to_host.lock);
 
-	sx = &stream->sx;
 	sx->from_host.buffer.buf = sx->from_host.buf;
 	sx->from_host.crc32 = ~0;
 	
@@ -523,11 +512,11 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 
 	ret = i2c_slave_register(client, i2c_slave_stream_cb);
 	if (ret) {
-		cdev_device_del(&stream->cdev, &stream->dev);
+		cdev_device_del(&sx->cdev, &sx->dev);
 		return ret;
 	}
 
-	//get_device(&stream->dev);
+	//get_device(&sx->dev);
 	
 	return 0;
 };
@@ -535,12 +524,13 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 static int i2c_slave_stream_remove(struct i2c_client *client)
 {
 	struct stream_data *stream = i2c_get_clientdata(client);
+	struct stream_end *sx = &stream->sx;
 
 	printk(KERN_EMERG "%s: stream=%px\n", __func__, stream);
 	i2c_slave_unregister(stream->client);
-	//cdev_device_del(&stream->cdev, &stream->dev);
-	cdev_del(&stream->cdev);
-	device_unregister(&stream->dev);
+	//cdev_device_del(&sx->cdev, &sx->dev);
+	cdev_del(&sx->cdev);
+	device_unregister(&sx->dev);
 	
 	return 0;
 }
