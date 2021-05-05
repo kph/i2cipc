@@ -1,18 +1,12 @@
-ifneq ($(KERNELRELEASE),)
+KERNELRELEASE ?= $(shell uname -r)
+MODLIB = $(INSTALL_MOD_PATH)/lib/modules/$(KERNELRELEASE)
+KDIR ?= $(MODLIB)/build
 
-obj-m += i2c-target-stream.o
-
-else
-
-KVERSION ?= `uname -r`
-KDIR ?= /lib/modules/$(KVERSION)/build
-
-i2c-target-stream-kmod:
-	$(MAKE) -C $(KDIR) M=$$PWD
-
-clean:
-	rm -f *.o *.a *.cmd *.ko .i2c-target-stream*.cmd Module.symvers modules.order i2c-target-stream.mod i2c-target-stream.mod.c
-
-.PHONY: i2c-target-stream-kmod clean
-
+ifeq ($(V),)
+	Q = @
 endif
+
+modules modules_install clean:
+	$(Q)$(if $(wildcard $(KDIR)),$(MAKE) -C $(KDIR) M=$(CURDIR) $@,true)
+
+.PHONY: clean modules modules_install
