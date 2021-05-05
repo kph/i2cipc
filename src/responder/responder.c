@@ -590,9 +590,17 @@ static const struct i2c_device_id i2c_slave_stream_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, i2c_slave_stream_id);
 
+static const struct of_device_id responder_of_match[] = {
+	{ .compatible = "linux,i2c-ipc-responder" },
+	{ /* END OF LIST */ },
+
+};
+MODULE_DEVICE_TABLE(of, responder_of_match);
+
 static struct i2c_driver i2c_slave_stream_driver = {
 	.driver = {
 		.name = "i2c-slave-stream",
+		.of_match_table = responder_of_match,
 	},
 	.probe = i2c_slave_stream_probe,
 	.remove = i2c_slave_stream_remove,
