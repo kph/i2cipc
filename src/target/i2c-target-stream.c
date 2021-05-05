@@ -207,6 +207,22 @@ static u8 get_ctl_reg(struct stream_end *sx) {
 	return sx->ctl_write;
 }
 
+static int handle_write(struct stream_data *stream, struct stream_end *sx, u8 *val) {
+	switch (stream->reg) {
+	case STREAM_DATA_REG:
+		set_data_reg(sx, val);
+		break;
+		
+	case STREAM_CTL_REG:
+		set_ctl_reg(sx, val);
+		break;
+			
+	default:
+		return -ENOENT;
+	}
+	return 0;
+}
+
 static void read_processed(struct stream_end *sx, u8 *val)
 {
 	unsigned long head, tail;
@@ -228,11 +244,48 @@ static void read_processed(struct stream_end *sx, u8 *val)
 	spin_unlock(&sx->to_host.lock);
 }
 
+static void read_requested(struct stream_data *stream, struct stream_end *sx,
+			   u8 *val)
+{
+	switch (stream->reg) {
+	case STREAM_CNT_REG:
+		*val = get_cnt_reg(stream, sx);
+		break;
+
+	case STREAM_DATA_REG:
+		*val = get_data_reg(sx);
+		break;
+
+	case STREAM_READ_CRC_REG0:
+	case STREAM_READ_CRC_REG1:
+	case STREAM_READ_CRC_REG2:
+	case STREAM_READ_CRC_REG3:
+		*val = get_crc_reg(stream, sx, STREAM_READ_CRC_REG0);
+		break;
+
+	case STREAM_WRITE_CRC_REG0:
+	case STREAM_WRITE_CRC_REG1:
+	case STREAM_WRITE_CRC_REG2:
+	case STREAM_WRITE_CRC_REG3:
+		*val = get_crc_reg(stream, sx, STREAM_WRITE_CRC_REG0);
+		break;
+
+	case STREAM_CTL_REG:
+		*val = get_ctl_reg(sx);
+		break;
+			
+	default:
+		*val = 0;
+		break;
+	}
+}
+
 static int i2c_slave_stream_cb(struct i2c_client *client,
 			       enum i2c_slave_event event, u8 *val)
 {
 	struct stream_data *stream = i2c_get_clientdata(client);
 	struct stream_end *sx = &stream->sx;
+	int ret = 0;
 	
 	switch (event) {
 	case I2C_SLAVE_WRITE_REQUESTED:
@@ -242,22 +295,9 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 	case I2C_SLAVE_WRITE_RECEIVED:
 		if (stream->offset == 0) {	/* Register is a single byte */
 			stream->reg = *val;
-			stream->offset++;
-			break;
+		} else {
+			ret =  handle_write(stream, sx, val);
 		}
-		switch (stream->reg) {
-		case STREAM_DATA_REG:
-			set_data_reg(sx, val);
-			break;
-
-		case STREAM_CTL_REG:
-			set_ctl_reg(sx, val);
-			break;
-			
-		default:
-			return -ENOENT;
-		}
-
 		stream->offset++;
 		break;
 
@@ -272,40 +312,10 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 		break;
 
 	case I2C_SLAVE_READ_REQUESTED:
-		switch (stream->reg) {
-		case STREAM_CNT_REG:
-			*val = get_cnt_reg(stream, sx);
-			break;
-
-		case STREAM_DATA_REG:
-			*val = get_data_reg(sx);
-			break;
-
-		case STREAM_READ_CRC_REG0:
-		case STREAM_READ_CRC_REG1:
-		case STREAM_READ_CRC_REG2:
-		case STREAM_READ_CRC_REG3:
-			*val = get_crc_reg(stream, sx, STREAM_READ_CRC_REG0);
-			break;
-
-		case STREAM_WRITE_CRC_REG0:
-		case STREAM_WRITE_CRC_REG1:
-		case STREAM_WRITE_CRC_REG2:
-		case STREAM_WRITE_CRC_REG3:
-			*val = get_crc_reg(stream, sx, STREAM_WRITE_CRC_REG0);
-			break;
-
-		case STREAM_CTL_REG:
-			*val = get_ctl_reg(sx);
-			break;
-			
-		default:
-			*val = 0;
-			break;
-		}
+		read_requested(stream, sx, val);
 
 		/*
-		 * Do not increment buffer_idx here, because we don't know if
+		 * Do not increment offset here, because we don't know if
 		 * this byte will be actually used. Read Linux I2C slave docs
 		 * for details.
 		 */
@@ -319,7 +329,7 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 		break;
 	}
 
-	return 0;
+	return ret;
 }
 
 static int i2c_slave_stream_open(struct inode *inode, struct file *filep)
