@@ -280,8 +280,8 @@ static void sx_remove(struct stream_data *stream, u8 reg)
 	cdev_device_del(&sx->cdev, &sx->dev);
 	//printk("calling cdev_del\n");
 	//cdev_del(&sx->cdev);
-	//printk("calling device_unregister sx=%px &sx->dev=%px\n", sx, &sx->dev);
-	//put_device(&sx->dev);
+	printk("calling put_device sx=%px &sx->dev=%px\n", sx, &sx->dev);
+	put_device(&sx->dev);
 	printk("clearing handler_data[%d]\n", reg);
 	stream->handler_data[reg] = NULL;
 }
@@ -491,19 +491,26 @@ static struct file_operations fops =
 	.release = i2c_responder_stream_release,
 };
 
+static void sx_stream_release(struct device *dev)
+{
+	struct stream_fdx *sx = container_of(dev, struct stream_fdx, dev);
+
+	kfree(sx);
+}
+
 static int sx_register_chrdev(struct stream_data *stream, const char *name, u8 reg)
 {
 	struct stream_fdx *sx;
 	int ret;
 	
-	sx = devm_kzalloc(&stream->client->dev, sizeof(struct stream_fdx),
-			  GFP_KERNEL);
+	sx = kzalloc(sizeof(struct stream_fdx), GFP_KERNEL);
 	if (!sx)
 		return -ENOMEM;
 
 	sx->dev.devt = MKDEV(i2c_responder_stream_major, i2c_responder_stream_minor);
 	sx->dev.class = i2c_responder_stream_class;
 	sx->dev.parent = &stream->dev;
+	sx->dev.release = sx_stream_release;
 	dev_set_name(&sx->dev, name);
 	device_initialize(&sx->dev);
 	cdev_init(&sx->cdev, &fops);
@@ -513,6 +520,7 @@ static int sx_register_chrdev(struct stream_data *stream, const char *name, u8 r
 	//ret = cdev_add(&sx->cdev, sx->dev.devt, 1);
 	if (ret) {
 		put_device(&sx->dev);
+		kfree(sx);
 		return ret;
 	}
 	i2c_responder_stream_minor++;
