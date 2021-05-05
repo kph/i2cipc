@@ -87,9 +87,8 @@ struct target_stream_ops tops =
 static int i2c_slave_stream_major;
 static struct class *i2c_slave_stream_class;
 
-#ifdef NOTYET
-static u8 set_data_reg(struct stream_data *stream, u8 base_reg) {
-	unsigned long head, tail, cnt;
+static void set_data_reg(struct stream_data *stream, u8 *val) {
+	unsigned long head, tail;
 
 	spin_lock(&stream->sx.from_host.lock);
 	head = stream->sx.from_host.buffer.head;
@@ -105,7 +104,54 @@ static u8 set_data_reg(struct stream_data *stream, u8 base_reg) {
 	}
 	spin_unlock(&stream->sx.from_host.lock);
 }
-#endif
+
+static void set_ctl_reg(struct stream_data *stream, u8 *val) {
+	stream->sx.ctl_write = *val;
+	switch (*val) {
+	case 0x80:
+		spin_lock(&stream->sx.to_host.lock);
+		stream->sx.to_host.crc32 = ~0;
+		smp_store_release(&stream->sx.to_host.frame,
+				  stream->sx.to_host.buffer.tail);
+		if (CIRC_CNT(stream->sx.to_host.buffer.head,
+			     stream->sx.to_host.frame,
+			     I2C_SLAVE_STREAM_BUFSIZE) == 0) {
+			wake_up(&stream->sx.to_host.wait);
+		}
+		spin_unlock(&stream->sx.to_host.lock);
+		break;
+
+	case 0x20:
+		spin_lock(&stream->sx.to_host.lock);
+		stream->sx.to_host.crc32 = ~0;
+		stream->sx.to_host.buffer.tail =
+			smp_load_acquire(&stream->sx.to_host.frame);
+		spin_unlock(&stream->sx.to_host.lock);
+		break;
+
+	case 0x40:
+		spin_lock(&stream->sx.from_host.lock);
+		stream->sx.from_host.crc32 = ~0;
+		smp_store_release(&stream->sx.from_host.frame,
+				  stream->sx.from_host.buffer.head);
+		if (CIRC_CNT(stream->sx.from_host.frame,
+			     stream->sx.from_host.buffer.tail,
+			     I2C_SLAVE_STREAM_BUFSIZE) > 0) {
+			wake_up(&stream->sx.from_host.wait);
+		}
+		spin_unlock(&stream->sx.from_host.lock);
+		break;
+	
+	case 0x10:
+		spin_lock(&stream->sx.from_host.lock);
+		stream->sx.from_host.crc32 = ~0;
+		stream->sx.from_host.buffer.head =
+			smp_load_acquire(&stream->sx.from_host.frame);
+		spin_unlock(&stream->sx.from_host.lock);
+		break;
+		
+	}
+}
 
 /*
  * get_reg32 - Read 8 bits of a 32 bit register
@@ -181,67 +227,11 @@ static int i2c_slave_stream_cb(struct i2c_client *client,
 		}
 		switch (stream->reg) {
 		case STREAM_DATA_REG:
-			spin_lock(&stream->sx.from_host.lock);
-			head = stream->sx.from_host.buffer.head;
-			tail = READ_ONCE(stream->sx.from_host.buffer.tail);
-			if (CIRC_SPACE(head, tail, I2C_SLAVE_STREAM_BUFSIZE) >= 1) {
-				stream->sx.from_host.buffer.buf[head] = *val;
-				stream->sx.from_host.crc32 = crc32_le(
-					stream->sx.from_host.crc32, val, 1);
-				stream->sx.from_host.buffer.head =
-					(head + 1) & (I2C_SLAVE_STREAM_BUFSIZE - 1);
-			} else {
-				stream->sx.overrun++;
-			}
-			spin_unlock(&stream->sx.from_host.lock);
+			set_data_reg(stream, val);
 			break;
 
 		case STREAM_CTL_REG:
-			stream->sx.ctl_write = *val;
-			switch (*val) {
-			case 0x80:
-				spin_lock(&stream->sx.to_host.lock);
-				stream->sx.to_host.crc32 = ~0;
-				smp_store_release(&stream->sx.to_host.frame,
-						  stream->sx.to_host.buffer.tail);
-				if (CIRC_CNT(stream->sx.to_host.buffer.head,
-					     stream->sx.to_host.frame,
-					     I2C_SLAVE_STREAM_BUFSIZE) == 0) {
-					wake_up(&stream->sx.to_host.wait);
-				}
-				spin_unlock(&stream->sx.to_host.lock);
-				break;
-
-			case 0x20:
-				spin_lock(&stream->sx.to_host.lock);
-				stream->sx.to_host.crc32 = ~0;
-				stream->sx.to_host.buffer.tail =
-					smp_load_acquire(&stream->sx.to_host.frame);
-				spin_unlock(&stream->sx.to_host.lock);
-				break;
-
-			case 0x40:
-				spin_lock(&stream->sx.from_host.lock);
-				stream->sx.from_host.crc32 = ~0;
-				smp_store_release(&stream->sx.from_host.frame,
-						  stream->sx.from_host.buffer.head);
-				if (CIRC_CNT(stream->sx.from_host.frame,
-					     stream->sx.from_host.buffer.tail,
-					     I2C_SLAVE_STREAM_BUFSIZE) > 0) {
-					wake_up(&stream->sx.from_host.wait);
-				}
-				spin_unlock(&stream->sx.from_host.lock);
-				break;
-	
-			case 0x10:
-				spin_lock(&stream->sx.from_host.lock);
-				stream->sx.from_host.crc32 = ~0;
-				stream->sx.from_host.buffer.head =
-					smp_load_acquire(&stream->sx.from_host.frame);
-				spin_unlock(&stream->sx.from_host.lock);
-				break;
-				
-			}
+			set_ctl_reg(stream, val);
 			break;
 			
 		default:
