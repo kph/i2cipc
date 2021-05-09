@@ -574,7 +574,7 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 	if (nprops_pname < 0)
 		return nprops_pname;
 
-	if (nprops_port == 0 || nprops_port != nprops_pname)
+	if (nprops_port != nprops_pname)
 		return -EINVAL;
 	
 	stream = kzalloc(sizeof(struct stream_data), GFP_KERNEL);
