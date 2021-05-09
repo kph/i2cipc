@@ -22,6 +22,7 @@
 #include <linux/cdev.h>
 #include <linux/uaccess.h>
 #include <linux/crc32.h>
+#include <linux/property.h>
 
 #define REGS_PER_RESPONDER (16)
 #define MAX_RESPONDER_REGS (16)
@@ -500,6 +501,9 @@ static int sx_register_chrdev(struct stream_data *stream, const char *name, u8 r
 	struct stream_fdx *sx;
 	int ret;
 	
+	if (stream->handler[reg] != &null_handler_ops)
+		return -EADDRNOTAVAIL;
+	
 	sx = kzalloc(sizeof(struct stream_fdx), GFP_KERNEL);
 	if (!sx)
 		return -ENOMEM;
@@ -552,9 +556,26 @@ static void i2c_slave_stream_release(struct device *dev)
 
 static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
+	struct device *dev = &client->dev;
 	struct stream_data *stream;
-	int ret;
-	int i;
+	int ret, i, nprops_port, nprops_pname;
+	u8 stream_base_ports[REGS_PER_RESPONDER];
+	const char *stream_base_port_names[REGS_PER_RESPONDER];
+	
+	nprops_port = device_property_read_u8_array(dev, "stream-ports",
+						    stream_base_ports,
+						    REGS_PER_RESPONDER);
+	if (nprops_port < 0)
+		return nprops_port;
+
+	nprops_pname = device_property_read_string_array(dev, "stream-port-names",
+							 stream_base_port_names,
+							 REGS_PER_RESPONDER);
+	if (nprops_pname < 0)
+		return nprops_pname;
+
+	if (nprops_port == 0 || nprops_port != nprops_pname)
+		return -EINVAL;
 	
 	stream = kzalloc(sizeof(struct stream_data), GFP_KERNEL);
 	if (!stream) {
@@ -563,7 +584,7 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 	}
 
 	stream->client = client;
-	stream->dev.parent = &client->dev;
+						    stream->dev.parent = dev;
 	//stream->dev.class = i2c_responder_stream_class;
 	dev_set_name(&stream->dev, DEVICE_NAME);
 	stream->dev.release = i2c_slave_stream_release;
@@ -574,7 +595,13 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 	for (i = 0; i < REGS_PER_RESPONDER; i++)
 		stream->handler[i] = &null_handler_ops;
 	
-	ret = sx_register_chrdev(stream, DEVICE_NAME, 4);
+
+	for (i = 0; i < nprops_port; i++) {
+		ret = sx_register_chrdev(stream, stream_base_port_names[i],
+					 stream_base_ports[i]);
+		if (ret < 0)
+			goto out_responder_unregister;
+	}
 	
 	i2c_set_clientdata(client, stream);
 
