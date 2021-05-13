@@ -651,7 +651,7 @@ static int i2c_responder_mux_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id i2c_responder_mux_id[] = {
-	{ "i2c-i2c-responder", 0 },
+	{ "i2c-ipc-responder", 0 },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, i2c_responder_mux_id);
