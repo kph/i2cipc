@@ -28,8 +28,7 @@
 #define MAX_RESPONDER_REGS (16)
 #define RESPONDER_REG(t) ((t) & (MAX_RESPONDER_REGS-1))
 
-#define  DEVICE_NAME "i2c-slave-stream-0" /* fixme per unit */
-#define  CLASS_NAME  "i2c-slave-stream"
+#define  STREAM_CLASS_NAME  "i2c-responder-stream"
 
 #define I2C_STREAM_BUFSIZE 0x100 /* Must be a power of 2 */
 
@@ -600,9 +599,8 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 	}
 
 	stream->client = client;
-						    stream->dev.parent = dev;
-	//stream->dev.class = i2c_responder_stream_class;
-	dev_set_name(&stream->dev, DEVICE_NAME);
+	stream->dev.parent = dev;
+	dev_set_name(&stream->dev, "%s-mux", dev_name(dev));
 	stream->dev.release = i2c_slave_stream_release;
 	ret = device_register(&stream->dev);
 	if (ret)
@@ -679,20 +677,20 @@ static int __init i2c_slave_stream_init(void)
 {
 	int err;
 
-	i2c_responder_stream_major = register_chrdev(0, DEVICE_NAME, &fops);
+	i2c_responder_stream_major = register_chrdev(0, STREAM_CLASS_NAME, &fops);
 	if (i2c_responder_stream_major < 0) {
 		return i2c_responder_stream_major;
 	}
 
-	i2c_responder_stream_class = class_create(THIS_MODULE, CLASS_NAME);
+	i2c_responder_stream_class = class_create(THIS_MODULE, STREAM_CLASS_NAME);
 	if (IS_ERR(i2c_responder_stream_class)) {
-		unregister_chrdev(i2c_responder_stream_major, DEVICE_NAME);
+		unregister_chrdev(i2c_responder_stream_major, STREAM_CLASS_NAME);
 		return PTR_ERR(i2c_responder_stream_class);
 	}
 
 	err = i2c_register_driver(THIS_MODULE, &i2c_responder_stream_driver);
 	if (err < 0) {
-		unregister_chrdev(i2c_responder_stream_major, DEVICE_NAME);
+		unregister_chrdev(i2c_responder_stream_major, STREAM_CLASS_NAME);
 		class_destroy(i2c_responder_stream_class);
 		return err;
 	}
@@ -704,7 +702,7 @@ static void __exit i2c_slave_stream_exit(void)
 {
 	i2c_del_driver(&i2c_responder_stream_driver);
 	class_destroy(i2c_responder_stream_class);
-	unregister_chrdev(i2c_responder_stream_major, DEVICE_NAME);
+	unregister_chrdev(i2c_responder_stream_major, STREAM_CLASS_NAME);
 }
 
 module_init(i2c_slave_stream_init);
