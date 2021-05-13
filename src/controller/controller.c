@@ -26,23 +26,24 @@
 #define  DEVICE_NAME "i2c-master-stream-0" /* fixme per unit */
 #define  CLASS_NAME  "i2c-master-stream"
 
-#define STREAM_DATA_REG (0x40)
-#define STREAM_CNT_REG (0x41)
-#define STREAM_READ_CRC_REG0 (0x42)
-#define STREAM_READ_CRC_REG1 (0x43)
-#define STREAM_READ_CRC_REG2 (0x44)
-#define STREAM_READ_CRC_REG3 (0x45)
-#define STREAM_WRITE_CRC_REG0 (0x46)
-#define STREAM_WRITE_CRC_REG1 (0x47)
-#define STREAM_WRITE_CRC_REG2 (0x48)
-#define STREAM_WRITE_CRC_REG3 (0x49)
-#define STREAM_CTL_REG (0x4a)
+#define STREAM_DATA_REG (0x0)
+#define STREAM_CNT_REG (0x1)
+#define STREAM_READ_CRC_REG0 (0x2)
+#define STREAM_READ_CRC_REG1 (0x3)
+#define STREAM_READ_CRC_REG2 (0x4)
+#define STREAM_READ_CRC_REG3 (0x5)
+#define STREAM_WRITE_CRC_REG0 (0x6)
+#define STREAM_WRITE_CRC_REG1 (0x7)
+#define STREAM_WRITE_CRC_REG2 (0x8)
+#define STREAM_WRITE_CRC_REG3 (0x9)
+#define STREAM_CTL_REG (0xa)
 
 struct stream_data {
 	struct device dev;
 	struct cdev cdev;
 	u32 crc;
 	struct i2c_client *client;
+	u8 base_port;
 };
 
 static int i2c_controller_stream_major;
@@ -68,7 +69,8 @@ static ssize_t i2c_controller_stream_read(struct file *filep, char *buffer, size
 	int error_cnt = 0;
 
 	while (done < len) {
-		cnt = i2c_smbus_read_byte_data(client, STREAM_CNT_REG);
+		cnt = i2c_smbus_read_byte_data(client,
+					       stream->base_port + STREAM_CNT_REG);
 		if (cnt < 0) {
 			if (error_cnt++ > 10) {
 				return cnt;
@@ -98,7 +100,8 @@ static ssize_t i2c_controller_stream_read(struct file *filep, char *buffer, size
 
 			for (i = 0; i < todo; i++) {
 				val = i2c_smbus_read_byte_data(client,
-								  STREAM_DATA_REG);
+							       stream->base_port +
+							       STREAM_DATA_REG);
 				if (val < 0) {
 					if (error_cnt++ > 10) {
 						return val;
@@ -112,28 +115,41 @@ static ssize_t i2c_controller_stream_read(struct file *filep, char *buffer, size
 			}
 
 			crc32_calc = ~crc32_le(~0, buf, todo);
-			crc32_recv = (i2c_smbus_read_byte_data(client, STREAM_READ_CRC_REG0) |
-				      (i2c_smbus_read_byte_data(client, STREAM_READ_CRC_REG1) << 8) |
-				      (i2c_smbus_read_byte_data(client, STREAM_READ_CRC_REG2) << 16) |
-				      (i2c_smbus_read_byte_data(client, STREAM_READ_CRC_REG3) << 24));
+			crc32_recv = (i2c_smbus_read_byte_data(client,
+							       stream->base_port +
+							       STREAM_READ_CRC_REG0) |
+				      (i2c_smbus_read_byte_data(client,
+								stream->base_port +
+								STREAM_READ_CRC_REG1)
+				       << 8) |
+				      (i2c_smbus_read_byte_data(client,
+								stream->base_port +
+								STREAM_READ_CRC_REG2)
+				       << 16) |
+				      (i2c_smbus_read_byte_data(client,
+								stream->base_port +
+								STREAM_READ_CRC_REG3)
+				       << 24));
 			if (crc32_calc != crc32_recv) {
-				i2c_smbus_write_byte_data(client, STREAM_CTL_REG,
-							  0x20);
+				i2c_smbus_write_byte_data(client, stream->base_port +
+							  STREAM_CTL_REG, 0x20);
 				continue;
 			}
 			
 			for (i = 0; i < 10; i++) {
 				i2c_smbus_write_byte_data(client,
-							  STREAM_CTL_REG,
-							  0x00);
+							  stream->base_port +
+							  STREAM_CTL_REG, 0x00);
 				val = i2c_smbus_read_byte_data(client,
+							       stream->base_port +
 							       STREAM_CTL_REG);
 				if (val != 0x00)
 					continue;
 				i2c_smbus_write_byte_data(client,
-							  STREAM_CTL_REG,
-							  0x80);
+							  stream->base_port +
+							  STREAM_CTL_REG, 0x80);
 				val = i2c_smbus_read_byte_data(client,
+							       stream->base_port +
 							       STREAM_CTL_REG);
 				if (val != 0x80)
 					continue;
@@ -174,8 +190,8 @@ static ssize_t i2c_controller_stream_write(struct file *filep, const char *buffe
 		error_cnt = 0;
 		for (i = 0; i < todo; i++) {
 			ret = i2c_smbus_write_byte_data(client,
-							STREAM_DATA_REG,
-							buf[i]);
+							stream->base_port +
+							STREAM_DATA_REG, buf[i]);
 			if (ret < 0) {
 				if (error_cnt++ > 10) {
 					return done != 0 ? done : ret;
@@ -188,28 +204,30 @@ static ssize_t i2c_controller_stream_write(struct file *filep, const char *buffe
 		}
 
 		crc32_calc = ~crc32_le(~0, buf, todo);
-		crc32_recv = (i2c_smbus_read_byte_data(client, STREAM_WRITE_CRC_REG0) |
-			      (i2c_smbus_read_byte_data(client, STREAM_WRITE_CRC_REG1) << 8) |
-			      (i2c_smbus_read_byte_data(client, STREAM_WRITE_CRC_REG2) << 16) |
-			      (i2c_smbus_read_byte_data(client, STREAM_WRITE_CRC_REG3) << 24));
+		crc32_recv = (i2c_smbus_read_byte_data(client, stream->base_port +
+						       STREAM_WRITE_CRC_REG0) |
+			      (i2c_smbus_read_byte_data(client, stream->base_port +
+							STREAM_WRITE_CRC_REG1) << 8) |
+			      (i2c_smbus_read_byte_data(client, stream->base_port +
+							STREAM_WRITE_CRC_REG2) << 16) |
+			      (i2c_smbus_read_byte_data(client, stream->base_port +
+							STREAM_WRITE_CRC_REG3) << 24));
 		if (crc32_calc != crc32_recv) {
-			i2c_smbus_write_byte_data(client, STREAM_CTL_REG,
-						  0x10);
+			i2c_smbus_write_byte_data(client, stream->base_port +
+						  STREAM_CTL_REG, 0x10);
 			continue;
 		}
 
 		for (i = 0; i < 10; i++) {
-			i2c_smbus_write_byte_data(client,
-						  STREAM_CTL_REG,
-						  0x00);
-			ret = i2c_smbus_read_byte_data(client,
+			i2c_smbus_write_byte_data(client, stream->base_port +
+						  STREAM_CTL_REG, 0x00);
+			ret = i2c_smbus_read_byte_data(client, stream->base_port +
 						       STREAM_CTL_REG);
 			if (ret != 0x00)
 				continue;
-			i2c_smbus_write_byte_data(client,
-						  STREAM_CTL_REG,
-						  0x40);
-			ret = i2c_smbus_read_byte_data(client,
+			i2c_smbus_write_byte_data(client, stream->base_port +
+						  STREAM_CTL_REG, 0x40);
+			ret = i2c_smbus_read_byte_data(client, stream->base_port +
 						       STREAM_CTL_REG);
 			if (ret != 0x40)
 				continue;
@@ -259,6 +277,7 @@ static int i2c_controller_mux_probe(struct i2c_client *client, const struct i2c_
 	if (!stream)
 		return -ENOMEM;
 
+	stream->base_port = 0x40;
 	device_initialize(&stream->dev);
 	stream->dev.devt = MKDEV(i2c_controller_stream_major, 0);
 	stream->dev.class = i2c_controller_stream_class;
