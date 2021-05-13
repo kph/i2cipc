@@ -318,13 +318,14 @@ static int i2c_controller_mux_probe(struct i2c_client *client, const struct i2c_
 		return -ENOMEM;
 
 	stream->base_port = 0x40;
-	device_initialize(&stream->dev);
 	stream->dev.devt = MKDEV(i2c_controller_stream_major, 0);
 	stream->dev.class = i2c_controller_stream_class;
 	stream->dev.release = i2c_controller_mux_data_release;
 	dev_set_name(&stream->dev, DEVICE_NAME);
-
+	device_initialize(&stream->dev);
 	cdev_init(&stream->cdev, &fops);
+	stream->cdev.owner = fops.owner;
+	
 	ret = cdev_device_add(&stream->cdev, &stream->dev);
 	if (ret) {
 		kfree(stream);
@@ -345,7 +346,8 @@ static int i2c_controller_mux_remove(struct i2c_client *client)
 	struct stream_data *stream = i2c_get_clientdata(client);
 
 	cdev_device_del(&stream->cdev, &stream->dev);
-	put_device(&stream->dev);
+//	put_device(&stream->dev);
+//	device_unregister(&stream->dev);
 
 	return 0;
 }
@@ -399,9 +401,9 @@ static int __init i2c_controller_mux_init(void)
 
 static void __exit i2c_controller_mux_exit(void)
 {
+	i2c_del_driver(&i2c_controller_mux_driver);
 	class_unregister(i2c_controller_stream_class);
 	unregister_chrdev(i2c_controller_stream_major, DEVICE_NAME);
-	i2c_del_driver(&i2c_controller_mux_driver);
 }
 
 module_init(i2c_controller_mux_init);
