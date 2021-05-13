@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * I2C slave mode responder
+ * I2C responder mode mux and character stream driver
  *
  * Copyright (C) 2020-2021 by Kevin Paul Herbert, Platina Systems, Inc.
  *
@@ -314,7 +314,7 @@ static struct handler_ops null_handler_ops = {
 	.remove = null_remove,
 };
 
-static int i2c_slave_stream_cb(struct i2c_client *client,
+static int i2c_responder_mux_cb(struct i2c_client *client,
 			       enum i2c_slave_event event, u8 *val)
 {
 	struct stream_data *stream = i2c_get_clientdata(client);
@@ -546,14 +546,14 @@ static int sx_register_chrdev(struct stream_data *stream, const char *name, u8 r
 	return 0;
 }
 
-static void i2c_slave_stream_release(struct device *dev)
+static void i2c_responder_mux_release(struct device *dev)
 {
 	struct stream_data *stream = container_of(dev, struct stream_data, dev);
 
 	kfree(stream);
 }
 
-static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_device_id *id)
+static int i2c_responder_mux_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	struct device *dev = &client->dev;
 	struct stream_data *stream;
@@ -601,7 +601,7 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 	stream->client = client;
 	stream->dev.parent = dev;
 	dev_set_name(&stream->dev, "%s-mux", dev_name(dev));
-	stream->dev.release = i2c_slave_stream_release;
+	stream->dev.release = i2c_responder_mux_release;
 	ret = device_register(&stream->dev);
 	if (ret)
 		goto out_kfree_stream;
@@ -619,7 +619,7 @@ static int i2c_slave_stream_probe(struct i2c_client *client, const struct i2c_de
 	
 	i2c_set_clientdata(client, stream);
 
-	ret = i2c_slave_register(client, i2c_slave_stream_cb);
+	ret = i2c_slave_register(client, i2c_responder_mux_cb);
 	if (ret)
 		goto out_responder_unregister;
 
@@ -636,7 +636,7 @@ out_err:
 	return ret;
 };
 
-static int i2c_slave_stream_remove(struct i2c_client *client)
+static int i2c_responder_mux_remove(struct i2c_client *client)
 {
 	struct stream_data *stream = i2c_get_clientdata(client);
 	int i;
@@ -650,11 +650,11 @@ static int i2c_slave_stream_remove(struct i2c_client *client)
 	return 0;
 }
 
-static const struct i2c_device_id i2c_slave_stream_id[] = {
-	{ "slave-stream", 0 },
+static const struct i2c_device_id i2c_responder_mux_id[] = {
+	{ "i2c-i2c-responder", 0 },
 	{ }
 };
-MODULE_DEVICE_TABLE(i2c, i2c_slave_stream_id);
+MODULE_DEVICE_TABLE(i2c, i2c_responder_mux_id);
 
 static const struct of_device_id responder_of_match[] = {
 	{ .compatible = "linux,i2c-ipc-responder" },
@@ -665,15 +665,15 @@ MODULE_DEVICE_TABLE(of, responder_of_match);
 
 static struct i2c_driver i2c_responder_stream_driver = {
 	.driver = {
-		.name = "i2c-slave-stream",
+		.name = "i2c-ipc-responder",
 		.of_match_table = responder_of_match,
 	},
-	.probe = i2c_slave_stream_probe,
-	.remove = i2c_slave_stream_remove,
-	.id_table = i2c_slave_stream_id,
+	.probe = i2c_responder_mux_probe,
+	.remove = i2c_responder_mux_remove,
+	.id_table = i2c_responder_mux_id,
 };
 
-static int __init i2c_slave_stream_init(void)
+static int __init i2c_responder_mux_init(void)
 {
 	int err;
 
@@ -698,16 +698,16 @@ static int __init i2c_slave_stream_init(void)
 	return 0;
 }
 
-static void __exit i2c_slave_stream_exit(void)
+static void __exit i2c_responder_mux_exit(void)
 {
 	i2c_del_driver(&i2c_responder_stream_driver);
 	class_destroy(i2c_responder_stream_class);
 	unregister_chrdev(i2c_responder_stream_major, STREAM_CLASS_NAME);
 }
 
-module_init(i2c_slave_stream_init);
-module_exit(i2c_slave_stream_exit);
+module_init(i2c_responder_mux_init);
+module_exit(i2c_responder_mux_exit);
 
 MODULE_AUTHOR("Kevin Paul Herbert <kph@platinaystems.com>");
-MODULE_DESCRIPTION("I2C slave mode stream transport");
+MODULE_DESCRIPTION("I2C responder mode mux and stream transport");
 MODULE_LICENSE("GPL v2");
