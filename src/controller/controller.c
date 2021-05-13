@@ -23,6 +23,10 @@
 #include <linux/sched/signal.h>
 #include <linux/crc32.h>
 
+#define REGS_PER_RESPONDER (16)
+#define MAX_RESPONDER_REGS (16)
+#define RESPONDER_REG(t) ((t) & (MAX_RESPONDER_REGS-1))
+
 #define  DEVICE_NAME "i2c-master-stream-0" /* fixme per unit */
 #define  CLASS_NAME  "i2c-master-stream"
 
@@ -270,8 +274,44 @@ static void i2c_controller_mux_data_release(struct device *dev) {
 
 static int i2c_controller_mux_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
+	struct device *dev = &client->dev;
 	struct stream_data *stream;
-	int ret;
+	int ret, nprops_port, nprops_pname;
+	u32 stream_base_ports[REGS_PER_RESPONDER];
+	const char *stream_base_port_names[REGS_PER_RESPONDER];
+
+	nprops_port = device_property_read_u32_array(dev, "stream-ports",
+						    NULL,
+						    REGS_PER_RESPONDER);
+	if (nprops_port < 0)
+		return nprops_port;
+
+	if (nprops_port == 0 || nprops_port > REGS_PER_RESPONDER)
+		return -EINVAL;
+
+	nprops_pname = device_property_read_string_array(dev, "stream-port-names",
+							 NULL, REGS_PER_RESPONDER);
+	if (nprops_pname < 0)
+		return nprops_pname;
+
+	if (nprops_port != nprops_pname)
+		return -EINVAL;
+
+	ret = device_property_read_u32_array(dev, "stream-ports",
+					     stream_base_ports,
+					     nprops_port);
+	if (ret == 0) {
+		ret = device_property_read_string_array(dev,
+							"stream-port-names",
+							stream_base_port_names,
+							REGS_PER_RESPONDER);
+		if (ret < 0)
+			return ret;
+	} else {
+		return ret;
+	}
+	
+	printk("nprops_port=%d nprops_pname=%d\n", nprops_port, nprops_pname);
 
 	stream = devm_kzalloc(&client->dev, sizeof(struct stream_data), GFP_KERNEL);
 	if (!stream)
