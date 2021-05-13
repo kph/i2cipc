@@ -45,10 +45,10 @@ struct stream_data {
 	struct i2c_client *client;
 };
 
-static int i2c_master_stream_major;
-static struct class *i2c_master_stream_class;
+static int i2c_controller_stream_major;
+static struct class *i2c_controller_stream_class;
 
-static int i2c_master_stream_open(struct inode *inode, struct file *filep)
+static int i2c_controller_stream_open(struct inode *inode, struct file *filep)
 {
 	struct stream_data *stream = container_of(inode->i_cdev,
 						  struct stream_data, cdev);
@@ -59,7 +59,7 @@ static int i2c_master_stream_open(struct inode *inode, struct file *filep)
 	return 0;
 }
 
-static ssize_t i2c_master_stream_read(struct file *filep, char *buffer, size_t len, loff_t *offset)
+static ssize_t i2c_controller_stream_read(struct file *filep, char *buffer, size_t len, loff_t *offset)
 {
 	struct stream_data *stream = filep->private_data;
 	struct i2c_client *client = stream->client;
@@ -150,7 +150,7 @@ static ssize_t i2c_master_stream_read(struct file *filep, char *buffer, size_t l
 	return done;
 }
 
-static ssize_t i2c_master_stream_write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
+static ssize_t i2c_controller_stream_write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
 {
 	struct stream_data *stream = filep->private_data;
 	struct i2c_client *client = stream->client;
@@ -224,7 +224,7 @@ static ssize_t i2c_master_stream_write(struct file *filep, const char *buffer, s
 	return done;
 }
 
-static int i2c_master_stream_release(struct inode *inodep, struct file *filep)
+static int i2c_controller_stream_release(struct inode *inodep, struct file *filep)
 {
 	struct stream_data *stream = filep->private_data;
 
@@ -236,13 +236,13 @@ static struct file_operations fops =
 {
 	.owner = THIS_MODULE,
 	.llseek = no_llseek,
-	.open = i2c_master_stream_open,
-	.read = i2c_master_stream_read,
-	.write = i2c_master_stream_write,
-	.release = i2c_master_stream_release,
+	.open = i2c_controller_stream_open,
+	.read = i2c_controller_stream_read,
+	.write = i2c_controller_stream_write,
+	.release = i2c_controller_stream_release,
 };
 
-static void i2c_master_stream_data_release(struct device *dev) {
+static void i2c_controller_mux_data_release(struct device *dev) {
 	struct stream_data *stream;
 
 	stream = container_of(dev, struct stream_data, dev);
@@ -260,9 +260,9 @@ static int i2c_master_stream_probe(struct i2c_client *client, const struct i2c_d
 		return -ENOMEM;
 
 	device_initialize(&stream->dev);
-	stream->dev.devt = MKDEV(i2c_master_stream_major, 0);
-	stream->dev.class = i2c_master_stream_class;
-	stream->dev.release = i2c_master_stream_data_release;
+	stream->dev.devt = MKDEV(i2c_controller_stream_major, 0);
+	stream->dev.class = i2c_controller_stream_class;
+	stream->dev.release = i2c_controller_mux_data_release;
 	dev_set_name(&stream->dev, DEVICE_NAME);
 
 	cdev_init(&stream->cdev, &fops);
@@ -314,17 +314,17 @@ static int __init i2c_master_stream_init(void)
 	if (err < 0)
 		return err;
 
-	i2c_master_stream_major = register_chrdev(0, DEVICE_NAME, &fops);
-	if (i2c_master_stream_major < 0) {
+	i2c_controller_stream_major = register_chrdev(0, DEVICE_NAME, &fops);
+	if (i2c_controller_stream_major < 0) {
 		i2c_del_driver(&i2c_master_stream_driver);
-		return i2c_master_stream_major;
+		return i2c_controller_stream_major;
 	}
 
-	i2c_master_stream_class = class_create(THIS_MODULE, CLASS_NAME);
-	if (IS_ERR(i2c_master_stream_class)) {
+	i2c_controller_stream_class = class_create(THIS_MODULE, CLASS_NAME);
+	if (IS_ERR(i2c_controller_stream_class)) {
 		i2c_del_driver(&i2c_master_stream_driver);
-		unregister_chrdev(i2c_master_stream_major, DEVICE_NAME);
-		return PTR_ERR(i2c_master_stream_class);
+		unregister_chrdev(i2c_controller_stream_major, DEVICE_NAME);
+		return PTR_ERR(i2c_controller_stream_class);
 	}
 
 	return 0;
@@ -332,8 +332,8 @@ static int __init i2c_master_stream_init(void)
 
 static void __exit i2c_master_stream_exit(void)
 {
-	class_unregister(i2c_master_stream_class);
-	unregister_chrdev(i2c_master_stream_major, DEVICE_NAME);
+	class_unregister(i2c_controller_stream_class);
+	unregister_chrdev(i2c_controller_stream_major, DEVICE_NAME);
 	i2c_del_driver(&i2c_master_stream_driver);
 }
 
