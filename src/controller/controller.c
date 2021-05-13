@@ -250,7 +250,7 @@ static void i2c_controller_mux_data_release(struct device *dev) {
 	kfree(stream);
 }
 
-static int i2c_master_stream_probe(struct i2c_client *client, const struct i2c_device_id *id)
+static int i2c_controller_mux_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	struct stream_data *stream;
 	int ret;
@@ -281,7 +281,7 @@ static int i2c_master_stream_probe(struct i2c_client *client, const struct i2c_d
 	return 0;
 };
 
-static int i2c_master_stream_remove(struct i2c_client *client)
+static int i2c_controller_mux_remove(struct i2c_client *client)
 {
 	struct stream_data *stream = i2c_get_clientdata(client);
 
@@ -291,38 +291,38 @@ static int i2c_master_stream_remove(struct i2c_client *client)
 	return 0;
 }
 
-static const struct i2c_device_id i2c_master_stream_id[] = {
+static const struct i2c_device_id i2c_controller_mux_id[] = {
 	{ "i2c-master-stream", 0 },
 	{ }
 };
-MODULE_DEVICE_TABLE(i2c, i2c_master_stream_id);
+MODULE_DEVICE_TABLE(i2c, i2c_controller_mux_id);
 
-static struct i2c_driver i2c_master_stream_driver = {
+static struct i2c_driver i2c_controller_mux_driver = {
 	.driver = {
 		.name = "i2c-master-stream",
 	},
-	.probe = i2c_master_stream_probe,
-	.remove = i2c_master_stream_remove,
-	.id_table = i2c_master_stream_id,
+	.probe = i2c_controller_mux_probe,
+	.remove = i2c_controller_mux_remove,
+	.id_table = i2c_controller_mux_id,
 };
 
-static int __init i2c_master_stream_init(void)
+static int __init i2c_controller_mux_init(void)
 {
 	int err;
 
-	err = i2c_add_driver(&i2c_master_stream_driver);
+	err = i2c_add_driver(&i2c_controller_mux_driver);
 	if (err < 0)
 		return err;
 
 	i2c_controller_stream_major = register_chrdev(0, DEVICE_NAME, &fops);
 	if (i2c_controller_stream_major < 0) {
-		i2c_del_driver(&i2c_master_stream_driver);
+		i2c_del_driver(&i2c_controller_mux_driver);
 		return i2c_controller_stream_major;
 	}
 
 	i2c_controller_stream_class = class_create(THIS_MODULE, CLASS_NAME);
 	if (IS_ERR(i2c_controller_stream_class)) {
-		i2c_del_driver(&i2c_master_stream_driver);
+		i2c_del_driver(&i2c_controller_mux_driver);
 		unregister_chrdev(i2c_controller_stream_major, DEVICE_NAME);
 		return PTR_ERR(i2c_controller_stream_class);
 	}
@@ -330,16 +330,16 @@ static int __init i2c_master_stream_init(void)
 	return 0;
 }
 
-static void __exit i2c_master_stream_exit(void)
+static void __exit i2c_controller_mux_exit(void)
 {
 	class_unregister(i2c_controller_stream_class);
 	unregister_chrdev(i2c_controller_stream_major, DEVICE_NAME);
-	i2c_del_driver(&i2c_master_stream_driver);
+	i2c_del_driver(&i2c_controller_mux_driver);
 }
 
-module_init(i2c_master_stream_init);
-module_exit(i2c_master_stream_exit);
+module_init(i2c_controller_mux_init);
+module_exit(i2c_controller_mux_exit);
 
 MODULE_AUTHOR("Kevin Paul Herbert <kph@platinaystems.com>");
-MODULE_DESCRIPTION("I2C master mode stream transport");
+MODULE_DESCRIPTION("I2C controller mode mux and stream transport");
 MODULE_LICENSE("GPL v2");
