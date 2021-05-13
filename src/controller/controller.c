@@ -310,21 +310,21 @@ static int __init i2c_controller_mux_init(void)
 {
 	int err;
 
-	err = i2c_add_driver(&i2c_controller_mux_driver);
-	if (err < 0)
-		return err;
-
+	i2c_controller_stream_class = class_create(THIS_MODULE, CLASS_NAME);
+	if (IS_ERR(i2c_controller_stream_class))
+		return PTR_ERR(i2c_controller_stream_class);
+	
 	i2c_controller_stream_major = register_chrdev(0, DEVICE_NAME, &fops);
 	if (i2c_controller_stream_major < 0) {
-		i2c_del_driver(&i2c_controller_mux_driver);
+		class_destroy(i2c_controller_stream_class);
 		return i2c_controller_stream_major;
 	}
 
-	i2c_controller_stream_class = class_create(THIS_MODULE, CLASS_NAME);
-	if (IS_ERR(i2c_controller_stream_class)) {
-		i2c_del_driver(&i2c_controller_mux_driver);
+	err = i2c_add_driver(&i2c_controller_mux_driver);
+	if (err < 0) {
 		unregister_chrdev(i2c_controller_stream_major, DEVICE_NAME);
-		return PTR_ERR(i2c_controller_stream_class);
+		class_destroy(i2c_controller_stream_class);
+		return err;
 	}
 
 	return 0;
