@@ -292,14 +292,22 @@ static int i2c_controller_mux_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id i2c_controller_mux_id[] = {
-	{ "i2c-master-stream", 0 },
+	{ "i2c-ipc-controller", 0 },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, i2c_controller_mux_id);
 
+static const struct of_device_id controller_of_match[] = {
+	{ .compatible = "linux,i2c-ipc-controller" },
+	{ /* END OF LIST */ },
+
+};
+MODULE_DEVICE_TABLE(of, controller_of_match);
+
 static struct i2c_driver i2c_controller_mux_driver = {
 	.driver = {
-		.name = "i2c-master-stream",
+		.name = "i2c-ipc-controller",
+		.of_match_table = controller_of_match,
 	},
 	.probe = i2c_controller_mux_probe,
 	.remove = i2c_controller_mux_remove,
