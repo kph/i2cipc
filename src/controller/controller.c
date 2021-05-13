@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * I2C master mode stream driver
+ * I2C controller mode mux and stream driver
  *
  * Copyright (C) 2020 by Kevin Paul Herbert, Platina Systems, Inc.
  *
