@@ -269,6 +269,7 @@ static void i2c_controller_mux_data_release(struct device *dev) {
 
 	stream = container_of(dev, struct stream_data, dev);
 
+//	printk("%s: freeing %px\n", __func__, stream);
 	kfree(stream);
 }
 
@@ -331,12 +332,10 @@ static int i2c_controller_mux_probe(struct i2c_client *client, const struct i2c_
 		kfree(stream);
 		return ret;
 	}
-	stream->cdev.owner = fops.owner;
 	
 	stream->client = client;
-
 	i2c_set_clientdata(client, stream);
-	get_device(&stream->dev);
+//	get_device(&stream->dev);
 
 	return 0;
 };
@@ -346,7 +345,7 @@ static int i2c_controller_mux_remove(struct i2c_client *client)
 	struct stream_data *stream = i2c_get_clientdata(client);
 
 	cdev_device_del(&stream->cdev, &stream->dev);
-//	put_device(&stream->dev);
+	put_device(&stream->dev);
 //	device_unregister(&stream->dev);
 
 	return 0;
