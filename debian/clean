@@ -1,0 +1,4 @@
+debian/install
+debian/.debhelper/
+debian/i2c-controller-dkms/
+debian/i2c-responder-dkms/

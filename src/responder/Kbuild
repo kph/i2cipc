@@ -1,0 +1,3 @@
+obj-m := i2cipc-responder.o
+
+i2cipc-responder-y := responder.o

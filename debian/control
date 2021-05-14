@@ -1,0 +1,21 @@
+Source: i2cipc
+Section: net
+Priority: optional
+Maintainer: Kevin Paul Herbert <kph@platinasystems.com>
+Build-Depends: debhelper (>=10), dkms
+Standards-Version: 3.9.8
+Homepage: https://platinasystems.com
+Vcs-Browser: https://github.com/platinasystems/i2cipc
+Vcs-Git: https://github.com/platinasystems/i2cipc.git
+
+Package: i2cipc-controller-dkms
+Architecture: all
+Depends: ${misc:Depends}, libelf-dev, build-essential
+Description: Platina Systems mux driver
+ Kernel mux/stream device driver for i2c ipc controller.
+
+Package: i2cipc-responder-dkms
+Architecture: all
+Depends: ${misc:Depends}, libelf-dev, build-essential
+Description: Platina Systems mux driver
+ Kernel mux/stream device driver for i2c ipc responder.

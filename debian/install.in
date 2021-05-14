@@ -1,0 +1,7 @@
+README.md usr/share/doc/i2cipc-dkms/
+src/controller/Kbuild usr/src/i2cipc-controller-DEB_VERSION_UPSTREAM/
+src/controller/Makefile usr/src/i2cipc-controller-DEB_VERSION_UPSTREAM/
+src/controller/*.c usr/src/i2cipc-controller-DEB_VERSION_UPSTREAM/
+src/responder/Kbuild usr/src/i2cipc-responder-DEB_VERSION_UPSTREAM/
+src/responder/Makefile usr/src/i2cipc-responder-DEB_VERSION_UPSTREAM/
+src/responder/*.c usr/src/i2cipc-responder-DEB_VERSION_UPSTREAM/
