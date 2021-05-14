@@ -517,7 +517,6 @@ static int sx_register_chrdev(struct mux_data *mux, const char *name, u8 reg)
 	sx->cdev.owner = fops.owner;
 	
 	ret = cdev_device_add(&sx->cdev, &sx->dev);
-	//ret = cdev_add(&sx->cdev, sx->dev.devt, 1);
 	if (ret) {
 		put_device(&sx->dev);
 		kfree(sx);
