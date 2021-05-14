@@ -27,8 +27,7 @@
 #define MAX_RESPONDER_REGS (16)
 #define RESPONDER_REG(t) ((t) & (MAX_RESPONDER_REGS-1))
 
-#define  DEVICE_NAME "i2c-master-stream-0" /* fixme per unit */
-#define  CLASS_NAME  "i2c-master-stream"
+#define  CLASS_NAME  "i2c-controller-stream"
 
 #define STREAM_DATA_REG (0x0)
 #define STREAM_CNT_REG (0x1)
@@ -457,7 +456,7 @@ static int __init i2c_controller_mux_init(void)
 	if (IS_ERR(i2c_controller_stream_class))
 		return PTR_ERR(i2c_controller_stream_class);
 	
-	i2c_controller_stream_major = register_chrdev(0, DEVICE_NAME, &fops);
+	i2c_controller_stream_major = register_chrdev(0, CLASS_NAME, &fops);
 	if (i2c_controller_stream_major < 0) {
 		class_destroy(i2c_controller_stream_class);
 		return i2c_controller_stream_major;
@@ -465,7 +464,7 @@ static int __init i2c_controller_mux_init(void)
 
 	err = i2c_add_driver(&i2c_controller_mux_driver);
 	if (err < 0) {
-		unregister_chrdev(i2c_controller_stream_major, DEVICE_NAME);
+		unregister_chrdev(i2c_controller_stream_major, CLASS_NAME);
 		class_destroy(i2c_controller_stream_class);
 		return err;
 	}
@@ -477,7 +476,7 @@ static void __exit i2c_controller_mux_exit(void)
 {
 	i2c_del_driver(&i2c_controller_mux_driver);
 	class_destroy(i2c_controller_stream_class);
-	unregister_chrdev(i2c_controller_stream_major, DEVICE_NAME);
+	unregister_chrdev(i2c_controller_stream_major, CLASS_NAME);
 }
 
 module_init(i2c_controller_mux_init);
