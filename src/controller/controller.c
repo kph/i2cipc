@@ -2,7 +2,7 @@
 /*
  * I2C controller mode mux and stream driver
  *
- * Copyright (C) 2020 by Kevin Paul Herbert, Platina Systems, Inc.
+ * Copyright (C) 2020-2021 by Kevin Paul Herbert, Platina Systems, Inc.
  *
  */
 
@@ -312,7 +312,6 @@ static int sx_register_chrdev(struct stream_data *stream, const char *name, u8 r
 	sx->cdev.owner = fops.owner;
 	
 	ret = cdev_device_add(&sx->cdev, &sx->dev);
-	//ret = cdev_add(&sx->cdev, sx->dev.devt, 1);
 	if (ret) {
 		put_device(&sx->dev);
 		kfree(sx);
@@ -389,8 +388,6 @@ static int i2c_controller_mux_probe(struct i2c_client *client, const struct i2c_
 	stream->client = client;
 	i2c_set_clientdata(client, stream);
 	
-//	get_device(&stream->dev);
-
 	return 0;
 
 out_controller_unregister:
