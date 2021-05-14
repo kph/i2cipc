@@ -1,0 +1,5 @@
+PACKAGE_NAME="i2cipc-responder"
+PACKAGE_VERSION="#MODULE_VERSION#"
+BUILT_MODULE_NAME[0]="i2cipc-responder"
+DEST_MODULE_LOCATION[0]="/updates/"
+AUTOINSTALL="yes"
