@@ -14,5 +14,6 @@ debian/*.log
 debian/*.substvars
 debian/debhelper-build-stamp
 debian/files
+debian/*.debhelper
 debian/i2cipc-controller-dkms/
 debian/i2cipc-responder-dkms/
