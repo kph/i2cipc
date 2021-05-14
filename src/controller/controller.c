@@ -25,7 +25,6 @@
 
 #define REGS_PER_RESPONDER (16)
 #define MAX_RESPONDER_REGS (16)
-#define RESPONDER_REG(t) ((t) & (MAX_RESPONDER_REGS-1))
 
 #define  CLASS_NAME  "i2c-controller-stream"
 
@@ -105,8 +104,6 @@ static ssize_t i2c_controller_stream_read(struct file *filep, char *buffer, size
 			u32 crc32_calc, crc32_recv;
 		
 			todo = min(todo, (size_t)32);
-//			printk("%s: cnt=%d todo=%ld\n", __func__, cnt, todo);
-
 			for (i = 0; i < todo; i++) {
 				val = i2c_smbus_read_byte_data(client,
 							       sx->base_port +
@@ -274,7 +271,6 @@ static void i2c_controller_mux_data_release(struct device *dev) {
 
 	stream = container_of(dev, struct stream_data, dev);
 
-	printk("%s: freeing %px\n", __func__, stream);
 	kfree(stream);
 }
 
@@ -282,7 +278,6 @@ static void sx_stream_release(struct device *dev)
 {
 	struct stream_dev *sx = container_of(dev, struct stream_dev, dev);
 
-	printk("%s: freeing %px\n", __func__, sx);
 	kfree(sx);
 }
 
@@ -362,8 +357,6 @@ static int i2c_controller_mux_probe(struct i2c_client *client, const struct i2c_
 		return ret;
 	}
 	
-	printk("nprops_port=%d nprops_pname=%d\n", nprops_port, nprops_pname);
-
 	stream = kzalloc(sizeof(struct stream_data), GFP_KERNEL);
 	if (!stream)
 		return -ENOMEM;
