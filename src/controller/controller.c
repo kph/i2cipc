@@ -42,39 +42,45 @@
 #define STREAM_WRITE_CRC_REG3 (0x9)
 #define STREAM_CTL_REG (0xa)
 
-struct stream_data {
+struct stream_dev {
 	struct device dev;
 	struct cdev cdev;
 	u32 crc;
-	struct i2c_client *client;
+	struct stream_data *stream;
 	u8 base_port;
 };
 
-static int i2c_controller_stream_major;
+struct stream_data {
+	struct device dev;
+	struct i2c_client *client;
+	void *handler_data[REGS_PER_RESPONDER];
+};
+
+static int i2c_controller_stream_major, i2c_controller_stream_minor;
 static struct class *i2c_controller_stream_class;
 
 static int i2c_controller_stream_open(struct inode *inode, struct file *filep)
 {
-	struct stream_data *stream = container_of(inode->i_cdev,
-						  struct stream_data, cdev);
+	struct stream_dev *sx = container_of(inode->i_cdev,
+					     struct stream_dev, cdev);
 
-	get_device(&stream->dev);
-	filep->private_data = stream;
+	get_device(&sx->dev);
+	filep->private_data = sx;
 	
 	return 0;
 }
 
 static ssize_t i2c_controller_stream_read(struct file *filep, char *buffer, size_t len, loff_t *offset)
 {
-	struct stream_data *stream = filep->private_data;
-	struct i2c_client *client = stream->client;
+	struct stream_dev *sx = filep->private_data;
+	struct i2c_client *client = sx->stream->client;
 	int cnt;
 	size_t done = 0;
 	int error_cnt = 0;
 
 	while (done < len) {
 		cnt = i2c_smbus_read_byte_data(client,
-					       stream->base_port + STREAM_CNT_REG);
+					       sx->base_port + STREAM_CNT_REG);
 		if (cnt < 0) {
 			if (error_cnt++ > 10) {
 				return cnt;
@@ -104,7 +110,7 @@ static ssize_t i2c_controller_stream_read(struct file *filep, char *buffer, size
 
 			for (i = 0; i < todo; i++) {
 				val = i2c_smbus_read_byte_data(client,
-							       stream->base_port +
+							       sx->base_port +
 							       STREAM_DATA_REG);
 				if (val < 0) {
 					if (error_cnt++ > 10) {
@@ -120,40 +126,40 @@ static ssize_t i2c_controller_stream_read(struct file *filep, char *buffer, size
 
 			crc32_calc = ~crc32_le(~0, buf, todo);
 			crc32_recv = (i2c_smbus_read_byte_data(client,
-							       stream->base_port +
+							       sx->base_port +
 							       STREAM_READ_CRC_REG0) |
 				      (i2c_smbus_read_byte_data(client,
-								stream->base_port +
+								sx->base_port +
 								STREAM_READ_CRC_REG1)
 				       << 8) |
 				      (i2c_smbus_read_byte_data(client,
-								stream->base_port +
+								sx->base_port +
 								STREAM_READ_CRC_REG2)
 				       << 16) |
 				      (i2c_smbus_read_byte_data(client,
-								stream->base_port +
+								sx->base_port +
 								STREAM_READ_CRC_REG3)
 				       << 24));
 			if (crc32_calc != crc32_recv) {
-				i2c_smbus_write_byte_data(client, stream->base_port +
+				i2c_smbus_write_byte_data(client, sx->base_port +
 							  STREAM_CTL_REG, 0x20);
 				continue;
 			}
 			
 			for (i = 0; i < 10; i++) {
 				i2c_smbus_write_byte_data(client,
-							  stream->base_port +
+							  sx->base_port +
 							  STREAM_CTL_REG, 0x00);
 				val = i2c_smbus_read_byte_data(client,
-							       stream->base_port +
+							       sx->base_port +
 							       STREAM_CTL_REG);
 				if (val != 0x00)
 					continue;
 				i2c_smbus_write_byte_data(client,
-							  stream->base_port +
+							  sx->base_port +
 							  STREAM_CTL_REG, 0x80);
 				val = i2c_smbus_read_byte_data(client,
-							       stream->base_port +
+							       sx->base_port +
 							       STREAM_CTL_REG);
 				if (val != 0x80)
 					continue;
@@ -172,8 +178,8 @@ static ssize_t i2c_controller_stream_read(struct file *filep, char *buffer, size
 
 static ssize_t i2c_controller_stream_write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
 {
-	struct stream_data *stream = filep->private_data;
-	struct i2c_client *client = stream->client;
+	struct stream_dev *sx = filep->private_data;
+	struct i2c_client *client = sx->stream->client;
 	size_t done = 0;
 	int ret;
 	int error_cnt;
@@ -194,7 +200,7 @@ static ssize_t i2c_controller_stream_write(struct file *filep, const char *buffe
 		error_cnt = 0;
 		for (i = 0; i < todo; i++) {
 			ret = i2c_smbus_write_byte_data(client,
-							stream->base_port +
+							sx->base_port +
 							STREAM_DATA_REG, buf[i]);
 			if (ret < 0) {
 				if (error_cnt++ > 10) {
@@ -208,30 +214,30 @@ static ssize_t i2c_controller_stream_write(struct file *filep, const char *buffe
 		}
 
 		crc32_calc = ~crc32_le(~0, buf, todo);
-		crc32_recv = (i2c_smbus_read_byte_data(client, stream->base_port +
+		crc32_recv = (i2c_smbus_read_byte_data(client, sx->base_port +
 						       STREAM_WRITE_CRC_REG0) |
-			      (i2c_smbus_read_byte_data(client, stream->base_port +
+			      (i2c_smbus_read_byte_data(client, sx->base_port +
 							STREAM_WRITE_CRC_REG1) << 8) |
-			      (i2c_smbus_read_byte_data(client, stream->base_port +
+			      (i2c_smbus_read_byte_data(client, sx->base_port +
 							STREAM_WRITE_CRC_REG2) << 16) |
-			      (i2c_smbus_read_byte_data(client, stream->base_port +
+			      (i2c_smbus_read_byte_data(client, sx->base_port +
 							STREAM_WRITE_CRC_REG3) << 24));
 		if (crc32_calc != crc32_recv) {
-			i2c_smbus_write_byte_data(client, stream->base_port +
+			i2c_smbus_write_byte_data(client, sx->base_port +
 						  STREAM_CTL_REG, 0x10);
 			continue;
 		}
 
 		for (i = 0; i < 10; i++) {
-			i2c_smbus_write_byte_data(client, stream->base_port +
+			i2c_smbus_write_byte_data(client, sx->base_port +
 						  STREAM_CTL_REG, 0x00);
-			ret = i2c_smbus_read_byte_data(client, stream->base_port +
+			ret = i2c_smbus_read_byte_data(client, sx->base_port +
 						       STREAM_CTL_REG);
 			if (ret != 0x00)
 				continue;
-			i2c_smbus_write_byte_data(client, stream->base_port +
+			i2c_smbus_write_byte_data(client, sx->base_port +
 						  STREAM_CTL_REG, 0x40);
-			ret = i2c_smbus_read_byte_data(client, stream->base_port +
+			ret = i2c_smbus_read_byte_data(client, sx->base_port +
 						       STREAM_CTL_REG);
 			if (ret != 0x40)
 				continue;
@@ -248,9 +254,9 @@ static ssize_t i2c_controller_stream_write(struct file *filep, const char *buffe
 
 static int i2c_controller_stream_release(struct inode *inodep, struct file *filep)
 {
-	struct stream_data *stream = filep->private_data;
+	struct stream_dev *sx = filep->private_data;
 
-	put_device(&stream->dev);
+	put_device(&sx->dev);
 	return 0;
 }
 
@@ -269,17 +275,63 @@ static void i2c_controller_mux_data_release(struct device *dev) {
 
 	stream = container_of(dev, struct stream_data, dev);
 
-//	printk("%s: freeing %px\n", __func__, stream);
+	printk("%s: freeing %px\n", __func__, stream);
 	kfree(stream);
+}
+
+static void sx_stream_release(struct device *dev)
+{
+	struct stream_dev *sx = container_of(dev, struct stream_dev, dev);
+
+	printk("%s: freeing %px\n", __func__, sx);
+	kfree(sx);
+}
+
+static int sx_register_chrdev(struct stream_data *stream, const char *name, u8 reg)
+{
+	struct stream_dev *sx;
+	int ret;
+	
+	if (stream->handler_data[reg] != NULL)
+		return -EADDRNOTAVAIL;
+	
+	sx = kzalloc(sizeof(struct stream_dev), GFP_KERNEL);
+	if (!sx)
+		return -ENOMEM;
+
+	sx->base_port = reg << 4;
+	sx->dev.devt = MKDEV(i2c_controller_stream_major,
+			     i2c_controller_stream_minor);
+	sx->dev.class = i2c_controller_stream_class;
+	sx->dev.parent = &stream->dev;
+	sx->dev.release = sx_stream_release;
+	sx->stream = stream;
+	dev_set_name(&sx->dev, name);
+	device_initialize(&sx->dev);
+	cdev_init(&sx->cdev, &fops);
+	sx->cdev.owner = fops.owner;
+	
+	ret = cdev_device_add(&sx->cdev, &sx->dev);
+	//ret = cdev_add(&sx->cdev, sx->dev.devt, 1);
+	if (ret) {
+		put_device(&sx->dev);
+		kfree(sx);
+		return ret;
+	}
+	i2c_controller_stream_minor++;
+	stream->handler_data[reg] = sx;
+	
+	return 0;
 }
 
 static int i2c_controller_mux_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	struct device *dev = &client->dev;
 	struct stream_data *stream;
-	int ret, nprops_port, nprops_pname;
+	int i, ret, nprops_port, nprops_pname;
 	u32 stream_base_ports[REGS_PER_RESPONDER];
 	const char *stream_base_port_names[REGS_PER_RESPONDER];
+	struct stream_dev *sx;
 
 	nprops_port = device_property_read_u32_array(dev, "stream-ports",
 						    NULL,
@@ -314,39 +366,65 @@ static int i2c_controller_mux_probe(struct i2c_client *client, const struct i2c_
 	
 	printk("nprops_port=%d nprops_pname=%d\n", nprops_port, nprops_pname);
 
-	stream = devm_kzalloc(&client->dev, sizeof(struct stream_data), GFP_KERNEL);
+	stream = kzalloc(sizeof(struct stream_data), GFP_KERNEL);
 	if (!stream)
 		return -ENOMEM;
 
-	stream->base_port = 0x40;
-	stream->dev.devt = MKDEV(i2c_controller_stream_major, 0);
-	stream->dev.class = i2c_controller_stream_class;
+	stream->dev.parent = dev;
+	dev_set_name(&stream->dev, "%s-mux", dev_name(dev));
 	stream->dev.release = i2c_controller_mux_data_release;
-	dev_set_name(&stream->dev, DEVICE_NAME);
-	device_initialize(&stream->dev);
-	cdev_init(&stream->cdev, &fops);
-	stream->cdev.owner = fops.owner;
+	ret = device_register(&stream->dev);
+	if (ret)
+		goto out_kfree_stream;
 	
-	ret = cdev_device_add(&stream->cdev, &stream->dev);
-	if (ret) {
-		kfree(stream);
-		return ret;
+	i2c_set_clientdata(client, stream);
+
+	for (i = 0; i < nprops_port; i++) {
+		ret = sx_register_chrdev(stream, stream_base_port_names[i],
+					 stream_base_ports[i] >> 4);
+		if (ret < 0)
+			goto out_controller_unregister;
 	}
-	
+
 	stream->client = client;
 	i2c_set_clientdata(client, stream);
+	
 //	get_device(&stream->dev);
 
 	return 0;
+
+out_controller_unregister:
+	for (i = 0; i < REGS_PER_RESPONDER; i++) {
+		sx = stream->handler_data[i];
+		if (sx) {
+			cdev_device_del(&sx->cdev, &sx->dev);
+			put_device(&sx->dev);
+			stream->handler_data[i] = NULL;
+		}
+	}
+
+out_kfree_stream:
+	kfree(stream);
+
+	return ret;
 };
 
 static int i2c_controller_mux_remove(struct i2c_client *client)
 {
 	struct stream_data *stream = i2c_get_clientdata(client);
+	struct stream_dev *sx;
+	int i;
+	
+	for (i = 0; i < REGS_PER_RESPONDER; i++) {
+		sx = stream->handler_data[i];
+		if (sx) {
+			cdev_device_del(&sx->cdev, &sx->dev);
+			put_device(&sx->dev);
+			stream->handler_data[i] = NULL;
+		}
+	}
 
-	cdev_device_del(&stream->cdev, &stream->dev);
-	put_device(&stream->dev);
-//	device_unregister(&stream->dev);
+	device_unregister(&stream->dev);
 
 	return 0;
 }
@@ -401,7 +479,7 @@ static int __init i2c_controller_mux_init(void)
 static void __exit i2c_controller_mux_exit(void)
 {
 	i2c_del_driver(&i2c_controller_mux_driver);
-	class_unregister(i2c_controller_stream_class);
+	class_destroy(i2c_controller_stream_class);
 	unregister_chrdev(i2c_controller_stream_major, DEVICE_NAME);
 }
 
