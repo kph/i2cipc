@@ -8,3 +8,11 @@
 *.o
 *.order
 *.symvers
+debian/install
+debian/.debhelper
+debian/*.log
+debian/*.substvars
+debian/debhelper-build-stamp
+debian/files
+debian/i2cipc-controller-dkms/
+debian/i2cipc-responder-dkms/
