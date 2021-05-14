@@ -62,7 +62,7 @@ struct stream_fdx {
 	struct stream_buffer from_host, to_host;
 };
 
-struct stream_data {
+struct mux_data {
 	struct device dev;
 	struct i2c_client *client;
 	u8 offset;
@@ -72,10 +72,10 @@ struct stream_data {
 };
 
 struct handler_ops {
-	int (*handle_write)(struct stream_data *stream, u8 *val);
-	void (*read_processed)(struct stream_data *stream, u8 *val);
-	void (*read_requested)(struct stream_data *stream, u8 *val);
-	void (*remove)(struct stream_data *stream, u8 base);
+	int (*handle_write)(struct mux_data *mux, u8 *val);
+	void (*read_processed)(struct mux_data *mux, u8 *val);
+	void (*read_requested)(struct mux_data *mux, u8 *val);
+	void (*remove)(struct mux_data *mux, u8 base);
 };
 
 static int i2c_responder_stream_major, i2c_responder_stream_minor;
@@ -149,7 +149,7 @@ static void set_ctl_reg(struct stream_fdx *sx, u8 *val)
 	}
 }
 
-static u8 get_cnt_reg(struct stream_data *stream, struct stream_fdx *sx)
+static u8 get_cnt_reg(struct mux_data *mux, struct stream_fdx *sx)
 {
 	unsigned long head, tail, cnt;
 	
@@ -160,7 +160,7 @@ static u8 get_cnt_reg(struct stream_data *stream, struct stream_fdx *sx)
 	if (cnt > 255) {
 		cnt = 255;
 	}
-	if (stream->offset > 0) {
+	if (mux->offset > 0) {
 		cnt = 0;
 	}
 	spin_unlock(&sx->to_host.lock);
@@ -190,14 +190,14 @@ static u8 get_reg32(u32 crc32, u8 offset)
 	return crc32 >> (offset << 3);
 }
 
-static int sx_handle_write(struct stream_data *stream, u8 *val)
+static int sx_handle_write(struct mux_data *mux, u8 *val)
 {
-	struct stream_fdx *sx = stream->handler_data[stream->reg >> 4];
+	struct stream_fdx *sx = mux->handler_data[mux->reg >> 4];
 	
-	if (stream->offset == 0)
+	if (mux->offset == 0)
 		return 0;	/* Nothing to do on address byte */
 
-	switch (RESPONDER_REG(stream->reg)) {
+	switch (RESPONDER_REG(mux->reg)) {
 	case STREAM_DATA_REG:
 		set_data_reg(sx, val);
 		break;
@@ -212,9 +212,9 @@ static int sx_handle_write(struct stream_data *stream, u8 *val)
 	return 0;
 }
 
-static void sx_read_processed(struct stream_data *stream, u8 *val)
+static void sx_read_processed(struct mux_data *mux, u8 *val)
 {
-	struct stream_fdx *sx = stream->handler_data[stream->reg >> 4];
+	struct stream_fdx *sx = mux->handler_data[mux->reg >> 4];
 	unsigned long head, tail;
 	u8 ch;
 
@@ -234,13 +234,13 @@ static void sx_read_processed(struct stream_data *stream, u8 *val)
 	spin_unlock(&sx->to_host.lock);
 }
 
-static void sx_read_requested(struct stream_data *stream, u8 *val)
+static void sx_read_requested(struct mux_data *mux, u8 *val)
 {
-	struct stream_fdx *sx = stream->handler_data[stream->reg >> 4];
+	struct stream_fdx *sx = mux->handler_data[mux->reg >> 4];
 
-	switch (RESPONDER_REG(stream->reg)) {
+	switch (RESPONDER_REG(mux->reg)) {
 	case STREAM_CNT_REG:
-		*val = get_cnt_reg(stream, sx);
+		*val = get_cnt_reg(mux, sx);
 		break;
 
 	case STREAM_DATA_REG:
@@ -252,7 +252,7 @@ static void sx_read_requested(struct stream_data *stream, u8 *val)
 	case STREAM_READ_CRC_REG2:
 	case STREAM_READ_CRC_REG3:
 		*val = get_reg32(~sx->to_host.crc32,
-				 RESPONDER_REG(stream->reg) - STREAM_READ_CRC_REG0);
+				 RESPONDER_REG(mux->reg) - STREAM_READ_CRC_REG0);
 		break;
 
 	case STREAM_WRITE_CRC_REG0:
@@ -260,7 +260,7 @@ static void sx_read_requested(struct stream_data *stream, u8 *val)
 	case STREAM_WRITE_CRC_REG2:
 	case STREAM_WRITE_CRC_REG3:
 		*val = get_reg32(~sx->from_host.crc32,
-				 RESPONDER_REG(stream->reg) - STREAM_WRITE_CRC_REG0);
+				 RESPONDER_REG(mux->reg) - STREAM_WRITE_CRC_REG0);
 		break;
 
 	case STREAM_CTL_REG:
@@ -273,13 +273,13 @@ static void sx_read_requested(struct stream_data *stream, u8 *val)
 	}
 }
 
-static void sx_remove(struct stream_data *stream, u8 reg)
+static void sx_remove(struct mux_data *mux, u8 reg)
 {
-	struct stream_fdx *sx = stream->handler_data[reg];
+	struct stream_fdx *sx = mux->handler_data[reg];
 
 	cdev_device_del(&sx->cdev, &sx->dev);
 	put_device(&sx->dev);
-	stream->handler_data[reg] = NULL;
+	mux->handler_data[reg] = NULL;
 }
 
 static struct handler_ops sx_handler_ops = {
@@ -289,21 +289,21 @@ static struct handler_ops sx_handler_ops = {
 	.remove = sx_remove,
 };
 
-static int null_handle_write(struct stream_data *stream, u8 *val)
+static int null_handle_write(struct mux_data *mux, u8 *val)
 {
 	*val = 0xff;
 	return -ENOENT;
 }
 
-static void null_read_processed(struct stream_data *stream, u8 *val)
+static void null_read_processed(struct mux_data *mux, u8 *val)
 {
 }
 
-static void null_read_requested(struct stream_data *stream, u8 *val)
+static void null_read_requested(struct mux_data *mux, u8 *val)
 {
 }
 
-static void null_remove(struct stream_data *stream, u8 reg)
+static void null_remove(struct mux_data *mux, u8 reg)
 {
 }
 
@@ -317,38 +317,38 @@ static struct handler_ops null_handler_ops = {
 static int i2c_responder_mux_cb(struct i2c_client *client,
 			       enum i2c_slave_event event, u8 *val)
 {
-	struct stream_data *stream = i2c_get_clientdata(client);
+	struct mux_data *mux = i2c_get_clientdata(client);
 	int ret = 0;
 	
 	switch (event) {
 	case I2C_SLAVE_WRITE_REQUESTED:
-		stream->offset = 0;
+		mux->offset = 0;
 		break;
 
 	case I2C_SLAVE_WRITE_RECEIVED:
-		if (stream->offset == 0) {	/* Register is a single byte */
-			stream->reg = *val;
+		if (mux->offset == 0) {	/* Register is a single byte */
+			mux->reg = *val;
 		}
-		ret = stream->handler[stream->reg >> 4]->handle_write(stream, val);
-		stream->offset++;
+		ret = mux->handler[mux->reg >> 4]->handle_write(mux, val);
+		mux->offset++;
 		break;
 
 	case I2C_SLAVE_READ_PROCESSED:
-		stream->offset++;
+		mux->offset++;
 		
-		if (RESPONDER_REG(stream->reg) != STREAM_DATA_REG) {
+		if (RESPONDER_REG(mux->reg) != STREAM_DATA_REG) {
 			*val = 0;
 			break;
 		}
-		stream->handler[stream->reg >> 4]->read_processed(stream, val);
+		mux->handler[mux->reg >> 4]->read_processed(mux, val);
 		break;
 
 	case I2C_SLAVE_READ_REQUESTED:
-		stream->handler[stream->reg >> 4]->read_requested(stream, val);
+		mux->handler[mux->reg >> 4]->read_requested(mux, val);
 		break;
 
 	case I2C_SLAVE_STOP:
-		stream->offset = 0;
+		mux->offset = 0;
 		break;
 
 	default:
@@ -495,12 +495,12 @@ static void sx_stream_release(struct device *dev)
 	kfree(sx);
 }
 
-static int sx_register_chrdev(struct stream_data *stream, const char *name, u8 reg)
+static int sx_register_chrdev(struct mux_data *mux, const char *name, u8 reg)
 {
 	struct stream_fdx *sx;
 	int ret;
 	
-	if (stream->handler[reg] != &null_handler_ops)
+	if (mux->handler[reg] != &null_handler_ops)
 		return -EADDRNOTAVAIL;
 	
 	sx = kzalloc(sizeof(struct stream_fdx), GFP_KERNEL);
@@ -509,7 +509,7 @@ static int sx_register_chrdev(struct stream_data *stream, const char *name, u8 r
 
 	sx->dev.devt = MKDEV(i2c_responder_stream_major, i2c_responder_stream_minor);
 	sx->dev.class = i2c_responder_stream_class;
-	sx->dev.parent = &stream->dev;
+	sx->dev.parent = &mux->dev;
 	sx->dev.release = sx_stream_release;
 	dev_set_name(&sx->dev, name);
 	device_initialize(&sx->dev);
@@ -540,23 +540,23 @@ static int sx_register_chrdev(struct stream_data *stream, const char *name, u8 r
 	sx->to_host.buffer.buf = sx->to_host.buf;
 	sx->to_host.crc32 = ~0;
 
-	stream->handler[reg] = &sx_handler_ops;
-	stream->handler_data[reg] = sx;
+	mux->handler[reg] = &sx_handler_ops;
+	mux->handler_data[reg] = sx;
 
 	return 0;
 }
 
 static void i2c_responder_mux_release(struct device *dev)
 {
-	struct stream_data *stream = container_of(dev, struct stream_data, dev);
+	struct mux_data *mux = container_of(dev, struct mux_data, dev);
 
-	kfree(stream);
+	kfree(mux);
 }
 
 static int i2c_responder_mux_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	struct device *dev = &client->dev;
-	struct stream_data *stream;
+	struct mux_data *mux;
 	int ret, i, nprops_port, nprops_pname;
 	u32 stream_base_ports[REGS_PER_RESPONDER];
 	const char *stream_base_port_names[REGS_PER_RESPONDER];
@@ -592,32 +592,32 @@ static int i2c_responder_mux_probe(struct i2c_client *client, const struct i2c_d
 		return ret;
 	}
 	
-	stream = kzalloc(sizeof(struct stream_data), GFP_KERNEL);
-	if (!stream) {
+	mux = kzalloc(sizeof(struct mux_data), GFP_KERNEL);
+	if (!mux) {
 		ret = -ENOMEM;
 		goto out_err;
 	}
 
-	stream->client = client;
-	stream->dev.parent = dev;
-	dev_set_name(&stream->dev, "%s-mux", dev_name(dev));
-	stream->dev.release = i2c_responder_mux_release;
-	ret = device_register(&stream->dev);
+	mux->client = client;
+	mux->dev.parent = dev;
+	dev_set_name(&mux->dev, "%s-mux", dev_name(dev));
+	mux->dev.release = i2c_responder_mux_release;
+	ret = device_register(&mux->dev);
 	if (ret)
-		goto out_kfree_stream;
+		goto out_kfree_mux;
 	
 	for (i = 0; i < REGS_PER_RESPONDER; i++)
-		stream->handler[i] = &null_handler_ops;
+		mux->handler[i] = &null_handler_ops;
 	
 
 	for (i = 0; i < nprops_port; i++) {
-		ret = sx_register_chrdev(stream, stream_base_port_names[i],
+		ret = sx_register_chrdev(mux, stream_base_port_names[i],
 					 stream_base_ports[i] >> 4);
 		if (ret < 0)
 			goto out_responder_unregister;
 	}
 	
-	i2c_set_clientdata(client, stream);
+	i2c_set_clientdata(client, mux);
 
 	ret = i2c_slave_register(client, i2c_responder_mux_cb);
 	if (ret)
@@ -627,25 +627,25 @@ static int i2c_responder_mux_probe(struct i2c_client *client, const struct i2c_d
 
 out_responder_unregister:
 	for (i = 0; i < REGS_PER_RESPONDER; i++)
-		stream->handler[i]->remove(stream, i);
+		mux->handler[i]->remove(mux, i);
 
-	device_unregister(&stream->dev);
-out_kfree_stream:
-	kfree(stream);
+	device_unregister(&mux->dev);
+out_kfree_mux:
+	kfree(mux);
 out_err:
 	return ret;
 };
 
 static int i2c_responder_mux_remove(struct i2c_client *client)
 {
-	struct stream_data *stream = i2c_get_clientdata(client);
+	struct mux_data *mux = i2c_get_clientdata(client);
 	int i;
 	
-	i2c_slave_unregister(stream->client);
+	i2c_slave_unregister(mux->client);
 	for (i = 0; i < REGS_PER_RESPONDER; i++) {
-		stream->handler[i]->remove(stream, i);
+		mux->handler[i]->remove(mux, i);
 	}
-	device_unregister(&stream->dev);
+	device_unregister(&mux->dev);
 	
 	return 0;
 }
@@ -663,7 +663,7 @@ static const struct of_device_id responder_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, responder_of_match);
 
-static struct i2c_driver i2c_responder_stream_driver = {
+static struct i2c_driver i2c_responder_mux_driver = {
 	.driver = {
 		.name = "i2c-ipc-responder",
 		.of_match_table = responder_of_match,
@@ -688,7 +688,7 @@ static int __init i2c_responder_mux_init(void)
 		return PTR_ERR(i2c_responder_stream_class);
 	}
 
-	err = i2c_register_driver(THIS_MODULE, &i2c_responder_stream_driver);
+	err = i2c_register_driver(THIS_MODULE, &i2c_responder_mux_driver);
 	if (err < 0) {
 		unregister_chrdev(i2c_responder_stream_major, STREAM_CLASS_NAME);
 		class_destroy(i2c_responder_stream_class);
@@ -700,7 +700,7 @@ static int __init i2c_responder_mux_init(void)
 
 static void __exit i2c_responder_mux_exit(void)
 {
-	i2c_del_driver(&i2c_responder_stream_driver);
+	i2c_del_driver(&i2c_responder_mux_driver);
 	class_destroy(i2c_responder_stream_class);
 	unregister_chrdev(i2c_responder_stream_major, STREAM_CLASS_NAME);
 }
